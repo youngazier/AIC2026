@@ -16,6 +16,7 @@ from utils.load_all_video_keyframes_info import load_all_video_keyframes_info
 
 from data_processing.feature_extraction.siglip2_embedding import SigLIP2Embedding
 from data_processing.feature_extraction.beit3_embedding import Beit3Embedding
+from data_processing.feature_extraction.dinov3_embedding import DinoV3Embedding
 
 from utils.config_loader import load_config
 
@@ -52,7 +53,8 @@ def collate_fn(batch):
 
 def main():
     parser = argparse.ArgumentParser(description="Run feature extraction on keyframes")
-    parser.add_argument("--model", type=str, default="siglip2", choices=["siglip2", "beit3"], help="Model to use for embedding")
+    parser.add_argument("--model", type=str, default="siglip2", choices=["siglip2", "beit3", "dinov3"], help="Model to use for embedding")
+    parser.add_argument("--batch_size", type=int, default=64, help="Batch size for extracting features")
     args = parser.parse_args()
 
     config = load_config()
@@ -61,16 +63,16 @@ def main():
     # Initialize model
     if args.model == "siglip2":
         extractor = SigLIP2Embedding()
-        out_dir = os.path.join(config["paths"]["features_dir"], "siglip2")
-        index_path = os.path.join(config["paths"]["index_dir"], "siglip2_keyframe_embedding.index")
-        meta_path = os.path.join(config["paths"]["index_dir"], "siglip2_keyframe_metadata.npy")
     elif args.model == "beit3":
         extractor = Beit3Embedding()
-        out_dir = os.path.join(config["paths"]["features_dir"], "beit3")
-        index_path = os.path.join(config["paths"]["index_dir"], "beit3_keyframe_embedding.index")
-        meta_path = os.path.join(config["paths"]["index_dir"], "beit3_keyframe_metadata.npy")
+    elif args.model == "dinov3":
+        extractor = DinoV3Embedding()
     else:
         raise ValueError("Unsupported model")
+    
+    out_dir = os.path.join(config["paths"]["features_dir"], f"{args.model}")
+    index_path = os.path.join(config["paths"]["index_dir"], f"{args.model}_keyframe_embedding.index")
+    meta_path = os.path.join(config["paths"]["index_dir"], f"{args.model}_keyframe_metadata.npy")
 
     os.makedirs(out_dir, exist_ok=True)
     os.makedirs(config["paths"]["index_dir"], exist_ok=True)
@@ -107,10 +109,9 @@ def main():
         keyframe_list = []
         if keyframe_paths:
             dataset = KeyframeDataset(keyframe_paths, keyframe_names, preprocess_fn)
-            batch_size = config["models"].get(args.model, {}).get("batch_size", 64)
             dataloader = DataLoader(
                 dataset,
-                batch_size=batch_size,
+                batch_size=args.batch_size,
                 shuffle=False,
                 num_workers=4,
                 collate_fn=collate_fn
