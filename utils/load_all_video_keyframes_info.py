@@ -7,7 +7,7 @@ def load_all_video_keyframes_info(data_path: str) -> Tuple[list[str], dict[str, 
     Create a list of video and list of keyframe
     """
     print("loading all videos and keyframes information")
-    all_keyframe = glob(f"{data_path}/keyframes/*/*.jpg")
+    all_keyframe = glob(f"{data_path}/keyframes/*/*/*.jpg")
     video_keyframe_dict = {}
     all_video = glob(f"{data_path}/videos/*/*.mp4")
     all_video = [v.rsplit("/", 1)[-1][:-4] for v in all_video]

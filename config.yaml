@@ -1,0 +1,28 @@
+# Cấu hình các đường dẫn trong hệ thống (Sử dụng đường dẫn tuyệt đối hoặc tương đối từ Root)
+paths:
+  root_dir: "/tmp2/maitanha/vgu/ttn/AIC2026"
+  data_dir: "{root_dir}/data"
+  videos_dir: "{root_dir}/data/videos"
+  keyframes_dir: "{root_dir}/data/keyframes"
+  features_dir: "{root_dir}/data/features"
+  index_dir: "{root_dir}/data/index"
+  support_models_dir: "{root_dir}/support_models"
+  huggingface_cache_dir: "/tmp2/maitanha/vgu/huggingface_cache"
+
+# Cấu hình thông số các mô hình
+models:
+  siglip2:
+    model_name: "ViT-gopt-16-SigLIP2-384"
+    pretrained: "webli"
+  beit3:
+    model_checkpoint: "{paths.root_dir}/support_models/unilm/beit3/beit3_large_patch16_384_coco_retrieval.pth"
+    tokenizer_checkpoint: "{paths.root_dir}/support_models/unilm/beit3/beit3.spm"
+  dinov3:
+    model_name: "facebook/dinov3-vith16plus-pretrain-lvd1689m"
+
+
+# Cấu hình Endpoint URLs cho việc gọi API phục vụ sau này
+urls:
+  backend_api: "http://localhost:8000"
+  siglip_embed: "http://localhost:8000/embed/siglip"
+  beit3_embed: "http://localhost:8000/embed/beit3"
