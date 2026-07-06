@@ -1,9 +1,11 @@
 import os
 import sys
+import json
 import numpy as np
 import faiss
 import torch
 import logging
+from collections import defaultdict
 from tqdm import tqdm
 import argparse
 from torch.utils.data import Dataset, DataLoader
@@ -51,6 +53,45 @@ def collate_fn(batch):
     return torch.stack(tensors), names
 
 
+def create_extractor(model_name):
+    if model_name == "siglip2":
+        return SigLIP2Embedding()
+    if model_name == "beit3":
+        return Beit3Embedding()
+    if model_name == "dinov3":
+        return DinoV3Embedding()
+    raise ValueError("Unsupported model")
+
+
+def build_flat_index_if_changed(embedding_array, infos, index_path, meta_path, label, use_gpu=False):
+    """
+    Build IndexFlatL2 + metadata song hành, nhưng BỎ QUA nếu metadata trên đĩa
+    đã y hệt metadata mới — tức playlist/global đó không có video mới thì
+    không ghi lại gì cả (yêu cầu cập nhật incremental).
+    """
+    info_array = np.array(infos)
+    if os.path.exists(index_path) and os.path.exists(meta_path):
+        old_info = np.load(meta_path, allow_pickle=True)
+        if old_info.shape == info_array.shape and np.array_equal(old_info, info_array):
+            logger.info(f"[{label}] {len(info_array)} vector, không có video mới — giữ nguyên index.")
+            return False
+
+    dimension = embedding_array.shape[1]
+    index = faiss.IndexFlatL2(dimension)
+    if use_gpu and torch.cuda.is_available():
+        res = faiss.StandardGpuResources()
+        gpu_index = faiss.index_cpu_to_gpu(res, 0, index)
+        gpu_index.add(embedding_array)
+        index = faiss.index_gpu_to_cpu(gpu_index)
+    else:
+        index.add(embedding_array)
+
+    faiss.write_index(index, index_path)
+    np.save(meta_path, info_array)
+    logger.info(f"[{label}] Đã ghi {index.ntotal} vector (dim={dimension}) -> {os.path.basename(index_path)}")
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run feature extraction on keyframes")
     parser.add_argument("--model", type=str, default="siglip2", choices=["siglip2", "beit3", "dinov3"], help="Model to use for embedding")
@@ -60,16 +101,11 @@ def main():
     config = load_config()
     all_video, video_keyframe_dict = load_all_video_keyframes_info(config["paths"]["data_dir"])
 
-    # Initialize model
-    if args.model == "siglip2":
-        extractor = SigLIP2Embedding()
-    elif args.model == "beit3":
-        extractor = Beit3Embedding()
-    elif args.model == "dinov3":
-        extractor = DinoV3Embedding()
-    else:
-        raise ValueError("Unsupported model")
-    
+    # Model được nạp LAZY: chỉ khởi tạo khi thực sự có video cần encode.
+    # Nhờ đó chạy lại script lúc mọi video đã có .npy (chỉ để cập nhật index
+    # playlist) sẽ không tốn thời gian nạp model lên GPU.
+    extractor = None
+
     out_dir = os.path.join(config["paths"]["features_dir"], f"{args.model}")
     index_path = os.path.join(config["paths"]["index_dir"], f"{args.model}_keyframe_embedding.index")
     meta_path = os.path.join(config["paths"]["index_dir"], f"{args.model}_keyframe_metadata.npy")
@@ -77,7 +113,7 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     os.makedirs(config["paths"]["index_dir"], exist_ok=True)
 
-    preprocess_fn = getattr(extractor, "preprocess", None) or getattr(extractor, "image_processor", None)
+    preprocess_fn = None
 
     # Biến lưu trữ số chiều vector động (Dynamic Dimension)
     feature_dim = None
@@ -108,6 +144,9 @@ def main():
                 
         keyframe_list = []
         if keyframe_paths:
+            if extractor is None:
+                extractor = create_extractor(args.model)
+                preprocess_fn = getattr(extractor, "preprocess", None) or getattr(extractor, "image_processor", None)
             dataset = KeyframeDataset(keyframe_paths, keyframe_names, preprocess_fn)
             dataloader = DataLoader(
                 dataset,
@@ -186,28 +225,61 @@ def main():
         return
 
     embedding_array = np.array(embedding_list, dtype=np.float32)
-    info_array = np.array(embedding_info)
 
-    # --- FAISS GPU INDEXING ---
-    # Tự động lấy dimension từ chính mảng dữ liệu cuối cùng thay vì hardcode
-    dimension = embedding_array.shape[1] 
-    cpu_index = faiss.IndexFlatL2(dimension)
-    
-    if torch.cuda.is_available():
-        logger.info(f"Configuring FAISS on GPU with dimension {dimension}...")
-        res = faiss.StandardGpuResources()
-        index = faiss.index_cpu_to_gpu(res, 0, cpu_index)
-    else:
-        logger.warning(f"GPU not available for FAISS, using CPU fallback with dimension {dimension}.")
-        index = cpu_index
+    # --- 1. GLOBAL INDEX (toàn bộ video) ---
+    build_flat_index_if_changed(
+        embedding_array, embedding_info, index_path, meta_path,
+        label=f"{args.model}/global", use_gpu=True,
+    )
 
-    logger.info("Adding vectors to FAISS index...")
-    index.add(embedding_array)
-    
-    logger.info("Saving index to disk...")
-    index_to_save = faiss.index_gpu_to_cpu(index) if torch.cuda.is_available() else index
-    faiss.write_index(index_to_save, index_path)
-    np.save(meta_path, info_array)
+    # --- 2. PLAYLIST INDEXES (chỉ build lại playlist có video mới) ---
+    vp_path = os.path.join(config["paths"]["data_dir"], "video_to_playlist.json")
+    if not os.path.exists(vp_path):
+        logger.warning(
+            f"Không tìm thấy {vp_path} — bỏ qua bước index theo playlist. "
+            f"Chạy data_processing/build_playlist_mapping.py trước rồi chạy lại script này."
+        )
+        return
+    with open(vp_path, encoding="utf-8") as f:
+        video_playlist = json.load(f)
+
+    playlist_dir = os.path.join(config["paths"]["index_dir"], "playlist")
+    os.makedirs(playlist_dir, exist_ok=True)
+
+    # Gom video theo playlist, giữ nguyên thứ tự all_video để index ổn định
+    playlist_videos = defaultdict(list)
+    unmapped = []
+    for v in all_video:
+        if v not in embedding_dict:
+            continue
+        playlist = video_playlist.get(v)
+        if playlist:
+            playlist_videos[playlist].append(v)
+        else:
+            unmapped.append(v)
+    if unmapped:
+        logger.warning(
+            f"{len(unmapped)} video chưa có trong video_to_playlist.json — "
+            f"chỉ nằm trong index global. VD: {unmapped[:5]}"
+        )
+
+    for playlist in sorted(playlist_videos):
+        vectors, infos = [], []
+        for v in playlist_videos[playlist]:
+            for k in video_keyframe_dict[v]:
+                if k in embedding_dict[v]:
+                    vectors.append(embedding_dict[v][k])
+                    infos.append((v, k))
+        if not vectors:
+            continue
+        build_flat_index_if_changed(
+            np.array(vectors, dtype=np.float32),
+            infos,
+            os.path.join(playlist_dir, f"{args.model}_{playlist}.index"),
+            os.path.join(playlist_dir, f"{args.model}_{playlist}_keyframe_metadata.npy"),
+            label=f"{args.model}/{playlist}",
+        )
+
     logger.info("Done.")
 
 if __name__ == "__main__":

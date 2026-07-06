@@ -12,7 +12,7 @@ import numpy as np
 import open_clip
 import torch
 from PIL import Image
-from base_embedding import BaseEmbedding
+from data_processing.feature_extraction.base_embedding import BaseEmbedding
 
 class SigLIP2Embedding(BaseEmbedding):
     def __init__(self, model_name="ViT-gopt-16-SigLIP2-384", pretrained="webli"):

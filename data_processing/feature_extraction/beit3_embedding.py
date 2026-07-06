@@ -16,7 +16,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
     
-from base_embedding import BaseEmbedding
+from data_processing.feature_extraction.base_embedding import BaseEmbedding
 
 from utils.config_loader import load_config
 config = load_config()

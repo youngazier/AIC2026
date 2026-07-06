@@ -14,7 +14,7 @@ project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from base_embedding import BaseEmbedding
+from data_processing.feature_extraction.base_embedding import BaseEmbedding
 
 from utils.config_loader import load_config
 config = load_config()
@@ -28,6 +28,12 @@ class DinoV3Embedding(BaseEmbedding):
         self.model = AutoModel.from_pretrained(model_name).to(self.device).eval()
     
         print(f"[{self.__class__.__name__}] Ready.")
+
+    def preprocess(self, image: Image.Image) -> torch.Tensor:
+        # HuggingFace processor trả về dạng dict, cần trích xuất tensor và bỏ chiều batch (squeeze)
+        # để DataLoader trong run_embedding.py có thể gom (stack) thành batch.
+        inputs = self.processor(images=image, return_tensors="pt")
+        return inputs.pixel_values.squeeze(0)
 
     def encode_text(self, text: str) -> np.ndarray:
         pass
@@ -51,7 +57,7 @@ class DinoV3Embedding(BaseEmbedding):
     def encode_images_batch(self, image_tensors: torch.Tensor) -> np.ndarray:
         try:
             with torch.no_grad():
-                outputs = self.model(image_tensors.to(self.device))
+                outputs = self.model(pixel_values=image_tensors.to(self.device))
                 image_features = outputs.last_hidden_state.mean(dim=1).cpu().numpy()
                 image_features /= np.linalg.norm(image_features, axis=1, keepdims=True)
             return image_features
