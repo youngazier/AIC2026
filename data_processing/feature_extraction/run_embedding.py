@@ -1,21 +1,35 @@
+#!/usr/bin/env python3
+"""[4a] Encode keyframe thành vector, ghi ra .npy theo từng video.
+
+Script này CHỈ trích xuất đặc trưng. Việc gom .npy lại thành FAISS index nằm ở
+`build_index.py` — chạy riêng sau khi encode xong. Tách đôi như vậy vì hai bước
+có đặc tính rất khác nhau: encode tốn GPU và hàng giờ đồng hồ, build index chỉ
+tốn CPU/RAM và vài giây, lại phải quét TOÀN BỘ .npy nên không chạy chung với
+cơ chế lọc -v/-f ở đây được.
+
+Phải activate venv_embedding trước khi chạy (torch/open_clip chỉ có trong đó):
+
+    source data_processing/feature_extraction/venv_embedding/bin/activate
+    python data_processing/feature_extraction/run_embedding.py -a --model siglip2
+    python data_processing/feature_extraction/build_index.py --model siglip2
+"""
 import os
 import sys
-import json
-import numpy as np
-import faiss
-import torch
-import logging
-from collections import defaultdict
-from tqdm import tqdm
 import argparse
-from torch.utils.data import Dataset, DataLoader
-from PIL import Image
+import logging
 from glob import glob
+
+import numpy as np
+import torch
+from PIL import Image
+from torch.utils.data import DataLoader, Dataset
+from tqdm import tqdm
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 from utils.load_all_video_keyframes_info import load_all_video_keyframes_info
 
+from data_processing.feature_extraction.feature_store import is_complete, save_atomic
 from data_processing.feature_extraction.siglip2_embedding import SigLIP2Embedding
 from data_processing.feature_extraction.beit3_embedding import Beit3Embedding
 from data_processing.feature_extraction.dinov3_embedding import DinoV3Embedding
@@ -63,71 +77,101 @@ def create_extractor(model_name):
     raise ValueError("Unsupported model")
 
 
-def build_flat_index_if_changed(embedding_array, infos, index_path, meta_path, label, use_gpu=False):
-    """
-    Build IndexFlatL2 + metadata song hành, nhưng BỎ QUA nếu metadata trên đĩa
-    đã y hệt metadata mới — tức playlist/global đó không có video mới thì
-    không ghi lại gì cả (yêu cầu cập nhật incremental).
-    """
-    info_array = np.array(infos)
-    if os.path.exists(index_path) and os.path.exists(meta_path):
-        old_info = np.load(meta_path, allow_pickle=True)
-        if old_info.shape == info_array.shape and np.array_equal(old_info, info_array):
-            logger.info(f"[{label}] {len(info_array)} vector, không có video mới — giữ nguyên index.")
-            return False
+def resolve_targets(args, all_video):
+    """Quy đổi cờ -v/-f/-a thành danh sách video_id cần encode.
 
-    dimension = embedding_array.shape[1]
-    index = faiss.IndexFlatL2(dimension)
-    if use_gpu and torch.cuda.is_available():
-        res = faiss.StandardGpuResources()
-        gpu_index = faiss.index_cpu_to_gpu(res, 0, index)
-        gpu_index.add(embedding_array)
-        index = faiss.index_gpu_to_cpu(gpu_index)
-    else:
-        index.add(embedding_array)
+    Quy ước đặt tên khớp với run_pipeline.sh / keyframe_extraction.py:
+      -v  nhận cả "L21_V001" lẫn đường dẫn "/.../L21_V001.mp4"
+      -f  nhận cả "L21" lẫn "Videos_L21"/"Keyframes_L21", ngăn bằng dấu phẩy
+          hoặc khoảng trắng ("L21,L22" hay "L21 L22" đều được)
+    """
+    if args.video:
+        name = os.path.splitext(os.path.basename(args.video))[0]
+        if name not in all_video:
+            sys.exit(f"Không tìm thấy video '{name}' trong dataset ({len(all_video)} video).")
+        return [name]
 
-    faiss.write_index(index, index_path)
-    np.save(meta_path, info_array)
-    logger.info(f"[{label}] Đã ghi {index.ntotal} vector (dim={dimension}) -> {os.path.basename(index_path)}")
-    return True
+    if args.folder:
+        prefixes = []
+        for raw in args.folder.replace(",", " ").split():
+            p = raw.strip().replace("Videos_", "").replace("Keyframes_", "")
+            if p and p not in prefixes:
+                prefixes.append(p)
+        targets = [v for v in all_video if any(v.startswith(p + "_") for p in prefixes)]
+        if not targets:
+            available = sorted({v.split("_")[0] for v in all_video})
+            sys.exit(
+                f"Không có video nào thuộc folder {prefixes}.\n"
+                f"Các folder hiện có: {', '.join(available)}"
+            )
+        # Báo riêng folder nào rỗng, tránh gõ nhầm 1 trong nhiều folder mà không hay
+        empty = [p for p in prefixes if not any(v.startswith(p + "_") for v in all_video)]
+        if empty:
+            logger.warning(f"Các folder sau không khớp video nào, bỏ qua: {empty}")
+        return targets
+
+    return list(all_video)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Run feature extraction on keyframes")
-    parser.add_argument("--model", type=str, default="siglip2", choices=["siglip2", "beit3", "dinov3"], help="Model to use for embedding")
-    parser.add_argument("--batch_size", type=int, default=64, help="Batch size for extracting features")
+    parser = argparse.ArgumentParser(
+        description="[4a] Encode keyframe thành vector .npy (chưa build index — xem build_index.py).",
+        epilog=(
+            "Ví dụ:\n"
+            "  %(prog)s -a --model siglip2 --batch_size 64   # toàn bộ dataset\n"
+            "  %(prog)s -v L21_V001                          # một video\n"
+            "  %(prog)s -f L21                               # một folder\n"
+            "  %(prog)s -f L21,L22   |   %(prog)s -f 'L21 L22'   # nhiều folder\n"
+            "Không truyền -v/-f/-a thì mặc định chạy toàn bộ dataset.\n"
+            "Encode xong nhớ chạy ./build_index.py để cập nhật FAISS index."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--model", type=str, default="siglip2", choices=["siglip2", "beit3", "dinov3"], help="Model dùng để embedding")
+    parser.add_argument("--batch_size", type=int, default=64, help="Batch size khi encode")
+
+    # Chọn tối đa MỘT target; không chọn gì = toàn bộ dataset (giữ tương thích
+    # với cách gọi cũ chỉ có --model/--batch_size).
+    target = parser.add_mutually_exclusive_group()
+    target.add_argument("-v", "--video", type=str, help="Một video (tên 'L21_V001' hoặc đường dẫn .mp4)")
+    target.add_argument("-f", "--folder", type=str, help="Một hoặc nhiều folder, ngăn bằng dấu phẩy/khoảng trắng ('L21' | 'L21,L22' | 'Videos_L21')")
+    target.add_argument("-a", "--all", action="store_true", help="Toàn bộ dataset (mặc định)")
     args = parser.parse_args()
 
     config = load_config()
-    all_video, video_keyframe_dict = load_all_video_keyframes_info(config["paths"]["data_dir"])
+    all_video, video_keyframe_dict = load_all_video_keyframes_info(
+        config["paths"]["videos_dir"], config["paths"]["keyframes_dir"]
+    )
+
+    targets = resolve_targets(args, all_video)
 
     # Model được nạp LAZY: chỉ khởi tạo khi thực sự có video cần encode.
-    # Nhờ đó chạy lại script lúc mọi video đã có .npy (chỉ để cập nhật index
-    # playlist) sẽ không tốn thời gian nạp model lên GPU.
+    # Nhờ đó chạy lại lúc mọi video đã có .npy sẽ không tốn thời gian nạp
+    # model lên GPU.
     extractor = None
 
     out_dir = os.path.join(config["paths"]["features_dir"], f"{args.model}")
-    index_path = os.path.join(config["paths"]["index_dir"], f"{args.model}_keyframe_embedding.index")
-    meta_path = os.path.join(config["paths"]["index_dir"], f"{args.model}_keyframe_metadata.npy")
-
     os.makedirs(out_dir, exist_ok=True)
-    os.makedirs(config["paths"]["index_dir"], exist_ok=True)
+
+    logger.info(f"Encode {len(targets)}/{len(all_video)} video với model {args.model} -> {out_dir}")
 
     preprocess_fn = None
 
     # Biến lưu trữ số chiều vector động (Dynamic Dimension)
     feature_dim = None
 
-    for v in tqdm(all_video, desc=f"Processing videos with {args.model}"):
+    encoded = 0
+    skipped = 0
+
+    failed = []
+
+    for v in tqdm(targets, desc=f"Processing videos with {args.model}"):
         if v not in video_keyframe_dict or not video_keyframe_dict[v]:
             logger.warning(f"Video {v} has no keyframes in video_keyframe_dict. Skipping.")
             continue
-            
+
         np_out = f"{out_dir}/{v}.npy"
-        if os.path.exists(np_out):
-            print(f"{np_out} exists, skip")
-            continue
-            
+
         # Tìm thư mục chứa keyframe thực tế của video v
         video_dir_candidates = glob(os.path.join(config["paths"]["keyframes_dir"], "*", v))
         video_dir = video_dir_candidates[0] if video_dir_candidates else os.path.join(config["paths"]["keyframes_dir"], v)
@@ -141,7 +185,18 @@ def main():
                 keyframe_names.append(k)
             else:
                 logger.warning(f"Image not found: {keyframe_path}")
-                
+
+        # Bỏ qua chỉ khi .npy hiện có ĐÚNG là kết quả đầy đủ của số keyframe đang
+        # có trên đĩa (luật ở feature_store.is_complete, dùng chung với bên kiểm).
+        if is_complete(np_out, len(keyframe_paths)):
+            skipped += 1
+            continue
+        if os.path.exists(np_out):
+            logger.warning(
+                f"{v}: .npy hiện có không khớp {len(keyframe_paths)} keyframe trên đĩa "
+                f"— encode lại và ghi đè."
+            )
+
         keyframe_list = []
         if keyframe_paths:
             if extractor is None:
@@ -155,7 +210,7 @@ def main():
                 num_workers=4,
                 collate_fn=collate_fn
             )
-            
+
             for batch in dataloader:
                 if batch is None:
                     continue
@@ -166,121 +221,50 @@ def main():
                         feature_dim = embeddings.shape[-1]
                         logger.info(f"Dynamically inferred feature dimension: {feature_dim}")
                     keyframe_list.append(embeddings)
-                    
-        if keyframe_list:
-            keyframe_array = np.vstack(keyframe_list)
-            np.save(np_out, keyframe_array)
-        else:
-            # Xử lý trường hợp video không có keyframe nào hợp lệ
-            if feature_dim is not None:
-                keyframe_array = np.empty((0, feature_dim))
-                np.save(np_out, keyframe_array)
+
+        keyframe_array = np.vstack(keyframe_list) if keyframe_list else None
+
+        # Cổng nghiệm thu: số vector phải bằng đúng số ảnh đưa vào encode.
+        # collate_fn loại IM LẶNG mọi ảnh không mở được ra khỏi batch, nên thiếu
+        # vector là chuyện xảy ra được mà không có exception nào.
+        if keyframe_array is None or keyframe_array.shape[0] != len(keyframe_paths):
+            got = 0 if keyframe_array is None else keyframe_array.shape[0]
+            if not keyframe_paths:
+                logger.error(
+                    f"{v}: không tìm thấy ảnh .jpg nào để encode. Không ghi .npy — "
+                    f"một .npy rỗng sẽ khiến video này biến mất khỏi index mà vẫn được "
+                    f"coi là đã xong. Trích keyframe trước rồi chạy lại."
+                )
             else:
-                logger.warning(f"Video {v} is completely empty and global dimension is unknown yet. Skipping saving.")
-                continue
-
-    # Load features into dictionary
-    embedding_dict = {}
-    for v in all_video:
-        if v not in video_keyframe_dict:
+                logger.error(
+                    f"{v}: encode ra {got}/{len(keyframe_paths)} vector — có ảnh hỏng bị "
+                    f"loại khỏi batch. Không ghi .npy."
+                )
+            failed.append(v)
             continue
-        clip_path = f"{out_dir}/{v}.npy"
-        if not os.path.exists(clip_path):
-            continue
-            
-        a = np.load(clip_path)
-        # Bỏ qua các array rỗng để không bị lỗi lúc map dictionary
-        if a.size == 0:
-            continue
-            
-        embedding_dict[v] = {}
-        
-        # Tìm thư mục chứa keyframe thực tế của video v
-        video_dir_candidates = glob(os.path.join(config["paths"]["keyframes_dir"], "*", v))
-        video_dir = video_dir_candidates[0] if video_dir_candidates else os.path.join(config["paths"]["keyframes_dir"], v)
-        
-        valid_keyframes = []
-        for k in video_keyframe_dict[v]:
-            keyframe_path = os.path.join(video_dir, f"{k}.jpg")
-            if os.path.exists(keyframe_path):
-                valid_keyframes.append(k)
-                
-        for i, k in enumerate(valid_keyframes):
-            if i < a.shape[0]:
-                embedding_dict[v][k] = a[i]
 
-    # Prepare data for FAISS index
-    embedding_list = []
-    embedding_info = []
-    for v in all_video:
-        if v not in video_keyframe_dict or v not in embedding_dict:
-            continue
-        for k in video_keyframe_dict[v]:
-            if k in embedding_dict[v]:
-                embedding_list.append(embedding_dict[v][k])
-                embedding_info.append((v, k))
-                
-    if not embedding_list:
-        logger.error("No embeddings extracted. Exiting.")
-        return
+        save_atomic(np_out, keyframe_array)
+        encoded += 1
 
-    embedding_array = np.array(embedding_list, dtype=np.float32)
-
-    # --- 1. GLOBAL INDEX (toàn bộ video) ---
-    build_flat_index_if_changed(
-        embedding_array, embedding_info, index_path, meta_path,
-        label=f"{args.model}/global", use_gpu=True,
+    total_npy = len(glob(os.path.join(out_dir, "*.npy")))
+    logger.info(
+        f"Xong. Encode mới {encoded} video, bỏ qua {skipped} video đã đủ .npy. "
+        f"Tổng cộng {total_npy} file .npy trong {out_dir}"
     )
-
-    # --- 2. PLAYLIST INDEXES (chỉ build lại playlist có video mới) ---
-    vp_path = os.path.join(config["paths"]["data_dir"], "video_to_playlist.json")
-    if not os.path.exists(vp_path):
-        logger.warning(
-            f"Không tìm thấy {vp_path} — bỏ qua bước index theo playlist. "
-            f"Chạy data_processing/build_playlist_mapping.py trước rồi chạy lại script này."
-        )
-        return
-    with open(vp_path, encoding="utf-8") as f:
-        video_playlist = json.load(f)
-
-    playlist_dir = os.path.join(config["paths"]["index_dir"], "playlist")
-    os.makedirs(playlist_dir, exist_ok=True)
-
-    # Gom video theo playlist, giữ nguyên thứ tự all_video để index ổn định
-    playlist_videos = defaultdict(list)
-    unmapped = []
-    for v in all_video:
-        if v not in embedding_dict:
-            continue
-        playlist = video_playlist.get(v)
-        if playlist:
-            playlist_videos[playlist].append(v)
-        else:
-            unmapped.append(v)
-    if unmapped:
-        logger.warning(
-            f"{len(unmapped)} video chưa có trong video_to_playlist.json — "
-            f"chỉ nằm trong index global. VD: {unmapped[:5]}"
+    if encoded:
+        logger.info(
+            f"Có .npy mới — chạy tiếp để cập nhật FAISS index:\n"
+            f"    {os.path.join(os.path.dirname(os.path.abspath(__file__)), 'build_index.py')} --model {args.model}"
         )
 
-    for playlist in sorted(playlist_videos):
-        vectors, infos = [], []
-        for v in playlist_videos[playlist]:
-            for k in video_keyframe_dict[v]:
-                if k in embedding_dict[v]:
-                    vectors.append(embedding_dict[v][k])
-                    infos.append((v, k))
-        if not vectors:
-            continue
-        build_flat_index_if_changed(
-            np.array(vectors, dtype=np.float32),
-            infos,
-            os.path.join(playlist_dir, f"{args.model}_{playlist}.index"),
-            os.path.join(playlist_dir, f"{args.model}_{playlist}_keyframe_metadata.npy"),
-            label=f"{args.model}/{playlist}",
+    # Chạy hết mọi video rồi mới báo lỗi, và exit != 0 để script gọi bên ngoài
+    # biết mà dừng — im lặng exit 0 với dữ liệu thiếu là cách lỗi lan xuống index.
+    if failed:
+        logger.error(
+            f"{len(failed)}/{len(targets)} video KHÔNG encode được: "
+            f"{failed[:10]}{'...' if len(failed) > 10 else ''}"
         )
-
-    logger.info("Done.")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

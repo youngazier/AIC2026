@@ -1,11 +1,38 @@
 # Cấu hình các đường dẫn trong hệ thống (Sử dụng đường dẫn tuyệt đối hoặc tương đối từ Root)
+#
+# ĐÂY LÀ NƠI DUY NHẤT KHAI BÁO ĐƯỜNG DẪN. Mọi script (kể cả run_pipeline.sh) đều đọc từ
+# đây — không hardcode lại ở bất kỳ đâu, tránh lệch pha giữa nơi ghi và nơi đọc.
+#
+# Phân biệt 2 gốc:
+#   data/           dữ liệu GỐC do BTC cung cấp (video, metadata) — chỉ đọc
+#   data_processed/ dữ liệu SINH RA từ pipeline (scenes, keyframes, map csv)
 paths:
   root_dir: "/tmp2/maitanha/vgu/ttn/AIC2026"
+
+  # --- Dữ liệu gốc từ BTC ---
   data_dir: "{root_dir}/data"
-  videos_dir: "{root_dir}/data/videos"
-  keyframes_dir: "{root_dir}/data/keyframes"
-  features_dir: "{root_dir}/data/features"
-  index_dir: "{root_dir}/data/index"
+  videos_dir: "{root_dir}/data/videos"                              # videos/Videos_LXX/LXX_VXXX.mp4
+
+  # --- Dữ liệu sinh ra bởi pipeline tiền xử lý ---
+  processed_dir: "{root_dir}/data_processed"
+  transnetv2_dir: "{root_dir}/data_processed/transnetv2"            # gốc output của TransNetV2
+  scenes_dir: "{root_dir}/data_processed/transnetv2/scenes"         # LXX_VXXX.scenes.txt
+  predictions_dir: "{root_dir}/data_processed/transnetv2/predictions"
+  keyframes_dir: "{root_dir}/data_processed/keyframes_transnetv2"   # Keyframes_LXX/LXX_VXXX/*.jpg
+  map_keyframes_dir: "{root_dir}/data_processed/map_keyframes"      # LXX_VXXX.csv
+
+  # --- Đặc trưng & chỉ mục (do run_embedding.py sinh ra) ---
+  features_dir: "{root_dir}/data_processed/features"                # {model}/LXX_VXXX.npy
+  index_dir: "{root_dir}/data_processed/index"                      # {model}_keyframe_embedding.index + playlist/
+
+  # --- Kết quả nộp cho BTC (do frontend ghi qua POST /api/v1/submissions) ---
+  submissions_dir: "{root_dir}/submissions"                         # <ten-tuy-y>.csv
+
+  # --- CSDL quan hệ (do scripts/init_db.py + ingest_db.py sinh ra) ---
+  # Nằm trong data_processed/ chứ KHÔNG phải data/: đây là dữ liệu SINH RA, còn data/
+  # là dữ liệu gốc chỉ-đọc của BTC (và đang là symlink sang kho dùng chung).
+  db_path: "{root_dir}/data_processed/metadata.db"
+
   support_models_dir: "{root_dir}/support_models"
   huggingface_cache_dir: "/tmp2/maitanha/vgu/huggingface_cache"
 
@@ -20,6 +47,26 @@ models:
   dinov3:
     model_name: "facebook/dinov3-vith16plus-pretrain-lvd1689m"
 
+
+# Cấu hình riêng của backend tìm kiếm (FastAPI)
+backend:
+  # Model được nạp lúc startup. Ghi đè nhanh khi dev bằng biến môi trường
+  # AIC_BACKEND_MODELS="siglip2" (danh sách ngăn cách bởi dấu phẩy).
+  #
+  # Nạp cả ba là tốn nhất: mỗi text encoder chiếm một chỗ trên GPU và cả ba index nằm
+  # thường trú trong RAM (~2.3 GB). Khi chỉ dev tầng DB/UI thì hạ xuống một model bằng
+  # AIC_BACKEND_MODELS cho khởi động nhanh, đừng sửa dòng này.
+  models: ["siglip2", "beit3", "dinov3"]
+  # GPU dành cho text encoder. Ghi đè bằng CUDA_VISIBLE_DEVICES nếu đã set sẵn.
+  gpu_device: "7"
+  # Nạp index bằng mmap thay vì đọc hết vào RAM (mục 1.4 docs/database_architecture.md).
+  # Chỉ bật khi RAM căng; mặc định preload để độ trễ ổn định khi thi.
+  use_mmap: false
+  default_topk: 100
+  max_topk: 500
+  # Mỗi kênh lấy dư topk * overfetch trước khi hợp nhất, để phép trộn có không gian hoạt động.
+  overfetch: 3
+  k_rrf: 60
 
 # Cấu hình Endpoint URLs cho việc gọi API phục vụ sau này
 urls:

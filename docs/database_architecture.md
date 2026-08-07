@@ -66,8 +66,11 @@ Câu hỏi: nạp hết index playlist ngay lúc startup, hay đợi user chọn
 Công thức ước lượng nhanh:
 ```text
 RAM ≈ số_keyframe × số_chiều × 4 bytes × 2 (global + tổng playlist) × số_model_đang_bật
-VD:   500.000 keyframe × 1152 chiều (SigLIP2) × 4B ≈ 2.2 GB → cả 2 tầng ≈ 4.4 GB / model
+VD:   500.000 keyframe × 1536 chiều (SigLIP2) × 4B ≈ 2.9 GB → cả 2 tầng ≈ 5.8 GB / model
 ```
+
+Số đo thực tế trên batch b1 (150.242 keyframe): SigLIP2 dim **1536** → index global 923 MB;
+DINOv3 dim **1280** → 769 MB. Preload cả 2 tầng của cả 2 model ≈ **3,4 GB**.
 
 | | **Preload tất cả lúc startup** (KHUYẾN NGHỊ nếu đủ RAM) | Lazy-load + TTL cache tự viết | Memory-map (`mmap`) |
 |---|---|---|---|
@@ -266,7 +269,7 @@ class FAISSRepository:
     """Quản lý toàn bộ index của MỘT model: 1 index global + N index playlist."""
 
     def __init__(self, model_name: str, index_dir: str, use_mmap: bool = False):
-        """index_dir là thư mục index CHUNG (data/index/), layout do run_embedding.py ghi:
+        """index_dir là thư mục index CHUNG (data_processed/index/), layout do run_embedding.py ghi:
         - global:   {index_dir}/{model}_keyframe_embedding.index (+ _metadata.npy)
         - playlist: {index_dir}/playlist/{model}_{playlist}.index
                     (+ {model}_{playlist}_keyframe_metadata.npy)
@@ -334,7 +337,7 @@ Khởi tạo lúc startup (theo chiến lược preload ở mục 1.4):
 ```python
 # backend/core/lifespan.py
 MODELS = ["siglip2", "beit3", "dinov3"]
-faiss_repos = {m: FAISSRepository(m, "data/index") for m in MODELS}
+faiss_repos = {m: FAISSRepository(m, "data_processed/index") for m in MODELS}
 ```
 
 ### 3.2. SQLite Repository

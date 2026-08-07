@@ -77,7 +77,7 @@ def test_model_embeddings(config, model_name):
 
 def test_playlist_indexes(config, model_name):
     """
-    Kiểm tra tầng index playlist (data/index/playlist/) của một model:
+    Kiểm tra tầng index playlist (data_processed/index/playlist/) của một model:
       1. Mỗi file {model}_{playlist}.index có metadata song hành và ntotal khớp nhau.
       2. Mọi video trong metadata playlist đúng là thuộc playlist đó
          (theo data/video_to_playlist.json).

@@ -2,14 +2,22 @@ from glob import glob
 from typing import Tuple
 
 
-def load_all_video_keyframes_info(data_path: str) -> Tuple[list[str], dict[str, list]]:
-    """
-    Create a list of video and list of keyframe
+def load_all_video_keyframes_info(videos_dir: str, keyframes_dir: str) -> Tuple[list[str], dict[str, list]]:
+    """Liệt kê toàn bộ video gốc và keyframe đã trích xuất.
+
+    Video gốc và keyframe nằm ở HAI gốc thư mục khác nhau nên phải truyền riêng:
+        videos_dir    = data/videos                          -> Videos_LXX/LXX_VXXX.mp4
+        keyframes_dir = data_processed/keyframes_transnetv2  -> Keyframes_LXX/LXX_VXXX/*.jpg
+    Cả hai đều lấy từ config.yaml, đừng hardcode ở nơi gọi.
+
+    Trả về:
+        all_video           : danh sách video_id đã sắp xếp, VD ["L21_V001", ...]
+        video_keyframe_dict : {video_id: [tên keyframe đã sắp xếp]}
     """
     print("loading all videos and keyframes information")
-    all_keyframe = glob(f"{data_path}/keyframes/*/*/*.jpg")
+    all_keyframe = glob(f"{keyframes_dir}/*/*/*.jpg")
     video_keyframe_dict = {}
-    all_video = glob(f"{data_path}/videos/*/*.mp4")
+    all_video = glob(f"{videos_dir}/*/*.mp4")
     all_video = [v.rsplit("/", 1)[-1][:-4] for v in all_video]
     all_video = sorted(all_video)
 

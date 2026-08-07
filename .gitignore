@@ -23,4 +23,24 @@ data/
 *.index
 *.log
 .env
-*.
+*.jpg
+*.jpeg
+*.png
+*.mp4
+*.txt
+*.csv
+
+# CSDL SQLite sinh ra bởi scripts/init_db.py + ingest_db.py (vài chục MB, build lại được)
+*.db
+*.db-wal
+*.db-shm
+
+# ==========================================
+# 3. Frontend
+# ==========================================
+node_modules/
+frontend/dist/
+
+# File CSV nộp bài KHÔNG bị ignore một cách cố ý: đó là bản ghi lại chính xác thứ đã
+# nộp cho BTC, mất là không dựng lại được. Bỏ comment dòng dưới nếu muốn ngược lại.
+# submissions/
