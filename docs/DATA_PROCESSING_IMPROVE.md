@@ -4,6 +4,9 @@ Scope: `data_processing/` (Phase 1, Phase 2, Phase 3 index build and SQLite
 catalog import) and the Docker setup that runs them. Keep it simple. Every item below must earn its place by
 serving the workflow in the next section.
 
+The full test plan is in `docs/DATA_PROCESSING_TEST_PLAN.md`. Each item's
+"Tests" lines below are the short version.
+
 When an item lands, tick it in the checklist at the end and update
 `docs/TODOS.md`, `docs/03_VIDEO_PROCESSING.md` and `docs/04_FEATURE_EXTRACTION.md`.
 
@@ -332,4 +335,7 @@ apply to everyone.
 - [ ] 6. Phase 2 DataLoader, batch size, fp16 option, timing line
 - [ ] 7. One compose file, GPU override, `all` command, old Docker files removed
 - [ ] 8. Merge instructions in `docs/03`
-- [ ] 9. Dependencies, markers, leftover cleanup, tiny-video E2E
+- [ ] 9. Housekeeping
+  - [x] Dependencies (`pgvector`, `psycopg[binary]`, `uv_build` pin) and `slow`/`gpu` pytest markers
+  - [ ] Leftover cleanup (`.*.backup-*` and `.work/`)
+  - [ ] Tiny-video E2E test

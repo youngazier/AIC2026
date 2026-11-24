@@ -51,4 +51,4 @@ Cross-cutting invariants that the code relies on:
 - Video names must be unique across batches (importer rejects duplicates) because Phase 2 feature filenames and playlist mapping are keyed by video name only.
 - `database.py` enables SQLite foreign keys and a 5s busy timeout on every connection; schema changes go through Alembic, not `create_all`.
 
-`pyproject.toml` lists pgvector/psycopg, but the implemented store is SQLite + FAISS. `test/transnetv2_pytorch/` is an upstream reference checkout (with its own `.git`), not the project test suite — tests live in `tests/`.
+The implemented store is SQLite + FAISS. `test/transnetv2_pytorch/` is an upstream reference checkout (with its own `.git`), not the project test suite — tests live in `tests/`.
