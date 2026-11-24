@@ -137,13 +137,15 @@ def test_phase2_cli_routes_batch_and_options(monkeypatch, tmp_path):
         captured.update(kwargs)
         return {"processed": 1, "skipped": 0, "failed": 0}
 
-    video = tmp_path / "data/videos/Videos_L21/L21_V001.mp4"
-    video.parent.mkdir(parents=True)
-    video.write_bytes(b"stub")
-    monkeypatch.setattr(
-        "data_processing.phase1_keyframe_extraction.pipeline.PROJECT_ROOT",
-        tmp_path,
-    )
+    phase1_dir = tmp_path / "transnetv2/Videos_L21/L21_V001"
+    phase1_dir.mkdir(parents=True)
+    (phase1_dir / "shots.json").write_text(json.dumps({
+        "mode": "phase1",
+        "batch": "Videos_L21",
+        "video_name": "L21_V001",
+        "pipeline_version": "phase1-middle-v4",
+        "shots": [],
+    }))
     monkeypatch.setattr(
         "data_processing.phase2_feature_extraction.pipeline.DEFAULT_PHASE1_ROOT",
         tmp_path / "transnetv2",
@@ -151,7 +153,8 @@ def test_phase2_cli_routes_batch_and_options(monkeypatch, tmp_path):
     monkeypatch.setattr("data_processing.phase2_feature_extraction.pipeline.run_pipeline", fake_run)
     assert main(["phase2", "--batch", "Videos_L21", "--batch-size", "8",
                  "--device", "gpu"]) == 0
-    assert captured["input_path"] == [video.resolve()]
+    assert captured["input_path"] == [phase1_dir.resolve()]
+    assert captured["missing_videos"] == []
     assert captured["batch_size"] == 8
     assert captured["device"] == "cuda"
     assert captured["model_key"] == "clip"

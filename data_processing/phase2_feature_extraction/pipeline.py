@@ -15,7 +15,6 @@ import numpy as np
 from PIL import Image
 import torch
 
-from ..phase1_keyframe_extraction.pipeline import video_identity
 from .clip_embedding import CLIPEmbedding
 from .models import MODELS, resolve_model
 
@@ -285,33 +284,24 @@ def process_result(result_dir: Path, *, keyframe_root: Path, model_dir: Path,
         shutil.rmtree(work_dir, ignore_errors=True)
 
 
-def _select_phase1_results(videos: Sequence[Path], phase1_root: Path) -> tuple[list[Path], int]:
-    """Map selected source video paths to completed Phase 1 directories."""
+def _validate_selected_results(result_dirs: Sequence[Path]) -> list[Path]:
     results: list[Path] = []
     identities: set[str] = set()
-    missing = 0
-    for video_path in videos:
-        batch, video_name = video_identity(Path(video_path))
-        if video_name in identities:
-            raise ValueError(f"Duplicate Phase 1 video identity: {video_name}")
-        identities.add(video_name)
-        candidate = phase1_root / batch / video_name
-        try:
-            phase1, _ = read_phase1_result(candidate)
-        except (OSError, ValueError, KeyError, TypeError):
-            phase1 = None
-        if not isinstance(phase1, dict) or phase1.get("mode") != "phase1":
-            LOGGER.error("%s: no Phase 1 output at %s", video_name, candidate)
-            missing += 1
-            continue
-        results.append(candidate)
-    if not results and not missing:
-        raise ValueError("No input videos provided")
-    return results, missing
+    for result_dir in result_dirs:
+        resolved = Path(result_dir).resolve()
+        header, _ = read_phase1_result(resolved)
+        if not isinstance(header, dict) or header.get("mode") != "phase1":
+            raise ValueError(f"Phase 1 result is incomplete: {resolved}")
+        identity = header.get("video_name")
+        if identity in identities:
+            raise ValueError(f"Duplicate Phase 1 video identity: {identity}")
+        identities.add(identity)
+        results.append(resolved)
+    return results
 
 
 def run_pipeline(input_path: Path | Sequence[Path] = DEFAULT_PHASE1_ROOT, *,
-                 phase1_root: Path | None = None,
+                 missing_videos: Sequence[str] = (),
                  keyframe_root: Path = DEFAULT_KEYFRAME_ROOT,
                  output_root: Path = DEFAULT_OUTPUT_ROOT,
                  model_name: str | None = None,
@@ -336,10 +326,12 @@ def run_pipeline(input_path: Path | Sequence[Path] = DEFAULT_PHASE1_ROOT, *,
         raise ValueError("data/ is reserved for competition inputs")
     if isinstance(input_path, (str, Path)):
         results = discover_phase1_results(Path(input_path))
-        missing = 0
     else:
-        resolved_phase1 = (phase1_root or DEFAULT_PHASE1_ROOT).resolve()
-        results, missing = _select_phase1_results(input_path, resolved_phase1)
+        results = _validate_selected_results(input_path)
+        if not results and not missing_videos:
+            raise ValueError("No Phase 1 inputs provided")
+    for name in missing_videos:
+        LOGGER.error("%s: no Phase 1 output", name)
     model_dir = output_root / model_key
     model_dir.mkdir(parents=True, exist_ok=True)
     embedder = None
@@ -350,7 +342,7 @@ def run_pipeline(input_path: Path | Sequence[Path] = DEFAULT_PHASE1_ROOT, *,
             embedder = embedder_factory(model_name=model_name, device=device)
         return embedder
 
-    summary = {"processed": 0, "skipped": 0, "failed": missing}
+    summary = {"processed": 0, "skipped": 0, "failed": len(missing_videos)}
     with _processing_lock(model_dir):
         _cleanup_leftovers(model_dir)
         for index, result in enumerate(results, 1):

@@ -330,7 +330,9 @@ apply to everyone.
 - [x] 1. Selectors `--video`, `--batch`, `--all` for Phase 1 and 2
 - [x] 2. Model registry
 - [x] 3. `phase3` command (index and catalog import), safe index build, new `indexes/<model>/` layout
-- [x] 4. Skip checks without mtimes, `Videos_L21` reprocessed
+- [ ] 4. Skip checks without mtimes, `Videos_L21` reprocessed
+  - [x] Skip checks without mtimes (Phase 1, Phase 2, and index sources)
+  - [ ] `Videos_L21` reprocessed
 - [x] 5. Quick skip check with `--verify`, Phase 2 skip before image checks
 - [ ] 6. Phase 2 DataLoader, batch size, fp16 option, timing line
 - [ ] 7. One compose file, GPU override, `all` command, old Docker files removed

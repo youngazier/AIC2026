@@ -109,14 +109,44 @@ def test_phase2_reports_video_missing_phase1_output_and_continues(
 
     monkeypatch.setitem(MODELS, "clip", (stub_embedder, stub_embedder.DEFAULT_MODEL))
     assert main(["phase1", "--video", "L21_V001", "L22_V001"]) == 0
+    shutil.rmtree(data_tree / "data/videos")
 
-    rc = main(["phase2", "--all"])
+    rc = main(["phase2", "--video", "L21_V001", "L21_V002", "L22_V001"])
     assert rc == 1
     assert "L21_V002" in caplog.text
     assert "no Phase 1 output" in caplog.text
     assert (data_tree / "data_processed/features/clip/L21_V001.npy").is_file()
     assert (data_tree / "data_processed/features/clip/L22_V001.npy").is_file()
     assert not (data_tree / "data_processed/features/clip/L21_V002.npy").exists()
+
+
+def test_phase2_selectors_work_when_data_videos_missing_or_empty(
+    data_tree: Path, stub_detector, stub_embedder, monkeypatch
+):
+    from data_processing.phase2_feature_extraction.models import MODELS
+
+    monkeypatch.setitem(MODELS, "clip", (stub_embedder, stub_embedder.DEFAULT_MODEL))
+    assert main(["phase1", "--all"]) == 0
+
+    # 1. data/videos/ completely missing
+    shutil.rmtree(data_tree / "data/videos")
+    assert main(["phase2", "--batch", "Videos_L21"]) == 0
+    assert (data_tree / "data_processed/features/clip/L21_V001.npy").is_file()
+    assert (data_tree / "data_processed/features/clip/L21_V002.npy").is_file()
+    assert not (data_tree / "data_processed/features/clip/L22_V001.npy").exists()
+
+    # 2. data/videos/ present but empty
+    (data_tree / "data/videos").mkdir(parents=True)
+    assert main(["phase2", "--batch", "Videos_L21", "Videos_L22"]) == 0
+    assert (data_tree / "data_processed/features/clip/L22_V001.npy").is_file()
+    assert main(["phase2", "--video", "L21_V001"]) == 0
+    assert main(["phase2", "--all"]) == 0
+
+
+def test_phase2_nonexistent_batch_errors_without_data_videos(processed_tree: Path, caplog):
+    shutil.rmtree(processed_tree / "data/videos")
+    assert main(["phase2", "--batch", "Videos_L99"]) == 1
+    assert "Videos_L99" in caplog.text
 
 
 def test_legacy_single_path_still_works(

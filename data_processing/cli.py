@@ -4,7 +4,7 @@ import argparse
 import logging
 from pathlib import Path
 
-from .selectors import add_selector_arguments, select_videos
+from .selectors import add_selector_arguments, select_phase1_results
 
 
 def main(argv=None) -> int:
@@ -61,20 +61,16 @@ def main(argv=None) -> int:
 
         try:
             embedder_cls, model_name = resolve_model(args.model, args.checkpoint)
-            if (args.input is not None and not args.video and not args.batch
-                    and not args.all_videos
-                    and (args.input.is_dir() or args.input.name in {"shots.json", "manifest.json"})):
-                selected: Path | list[Path] = args.input
-            else:
-                selected = select_videos(
-                    input_path=args.input,
-                    video=args.video,
-                    batch=args.batch,
-                    all_videos=args.all_videos,
-                )
+            selected, missing_videos = select_phase1_results(
+                input_path=args.input,
+                video=args.video,
+                batch=args.batch,
+                all_videos=args.all_videos,
+                phase1_root=phase2_pipeline.DEFAULT_PHASE1_ROOT,
+            )
             summary = phase2_pipeline.run_pipeline(
                 selected,
-                phase1_root=phase2_pipeline.DEFAULT_PHASE1_ROOT,
+                missing_videos=missing_videos,
                 keyframe_root=args.keyframe_root or phase2_pipeline.DEFAULT_KEYFRAME_ROOT,
                 output_root=args.output_root or phase2_pipeline.DEFAULT_OUTPUT_ROOT,
                 model_name=model_name,
