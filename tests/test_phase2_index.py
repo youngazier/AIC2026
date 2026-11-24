@@ -46,14 +46,14 @@ def test_builds_global_and_playlist_indexes(tmp_path):
         playlist_mapping=mapping,
     )
     assert summary == {"built": 3, "skipped": 0}
-    index = faiss.read_index(str(indexes / "clip_keyframe_embedding.index"))
+    index = faiss.read_index(str(indexes / "clip/global.index"))
     assert index.ntotal == 3
     assert index.d == 3
-    records = json.loads((indexes / "clip_keyframe_metadata.json").read_text())
+    records = json.loads((indexes / "clip/global_rows.json").read_text())
     assert [(record["video_name"], record["keyframe_name"]) for record in records] == [
         ("L21_V001", "00000"), ("L21_V001", "00001"), ("L22_V001", "00000")
     ]
-    assert faiss.read_index(str(indexes / "playlist/clip_news.index")).ntotal == 2
+    assert faiss.read_index(str(indexes / "clip/playlist/news.index")).ntotal == 2
 
     assert build_for_model(
         "clip", features_root=features, index_root=indexes,

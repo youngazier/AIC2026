@@ -26,8 +26,34 @@ def main(argv=None) -> int:
         help="Inference device: auto selects GPU when available; gpu is an alias for cuda",
     )
     phase2.add_argument("--force", action="store_true", help="Rebuild even when outputs validate")
+
+    phase3 = commands.add_parser("phase3", help="Build FAISS indexes and import the SQLite catalog")
+    phase3.add_argument("--model", default="clip", help="Registered model key, for example clip")
+    phase3.add_argument("--no-playlists", action="store_true", help="Skip playlist indexes")
+    phase3.add_argument("--force", action="store_true", help="Rebuild indexes even when valid")
+    phase3.add_argument("--no-index", action="store_true", help="Skip FAISS index construction")
+    phase3.add_argument("--no-catalog", action="store_true", help="Skip SQLite catalog import")
+
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    if args.command == "phase3":
+        from .phase3 import run_phase3
+
+        try:
+            return run_phase3(
+                model_key=args.model,
+                no_playlists=args.no_playlists,
+                force=args.force,
+                no_index=args.no_index,
+                no_catalog=args.no_catalog,
+            )
+        except (ValueError, OSError) as exc:
+            logging.error("%s", exc)
+            return 1
+        except KeyboardInterrupt:
+            logging.error("Processing interrupted; rerun the command to retry")
+            return 130
+
     if args.command == "phase2":
         from .phase2_feature_extraction import pipeline as phase2_pipeline
         from .phase2_feature_extraction.models import resolve_model

@@ -62,7 +62,7 @@ not rebuild features or FAISS indexes; run those existing CLIs separately.
 **Outcome:** a natural-language query returns ranked keyframes with correct
 SQLite video/shot references, without a web server.
 
-- [ ] Validate existing FAISS and row metadata files before an unchanged-run skip.
+- [x] Validate existing FAISS and row metadata files before an unchanged-run skip.
 - [ ] Load the same CLIP checkpoint and representation used by the image features; encode and normalize text queries.
 - [ ] Validate the FAISS index, manifest, row count/order, dimension, and model compatibility at startup.
 - [ ] Check Phase 2 sidecar provenance against the current Phase 1 `shots.json` before serving search.

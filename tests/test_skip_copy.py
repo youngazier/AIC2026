@@ -216,7 +216,7 @@ def test_copy_features_with_cp_and_rebuild_index(processed_tree: Path, tmp_path:
         "clip", features_root=copied_features, index_root=indexes, playlist_mapping=None
     ) == {"built": 1, "skipped": 0}
 
-    manifest = json.loads((indexes / "clip_keyframe_index.json").read_text())
+    manifest = json.loads((indexes / "clip/manifest.json").read_text())
     for source in manifest["sources"]:
         feature_file = copied_features / "clip" / source["feature_file"]
         assert "feature_mtime_ns" not in source

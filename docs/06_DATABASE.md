@@ -292,13 +292,16 @@ order. Rows within a file follow `embedding_index`. It creates an exact
 ViT-B/32 model the dimension is 512; inner product then equals cosine
 similarity. The score ranks similarity and is not an object-presence probability.
 
-For `model_key=clip`, the global published set is:
+For `model_key=clip`, the published layout under `data_processed/indexes/clip/` is:
 
 ```text
-data_processed/indexes/
-├── clip_keyframe_embedding.index          # FAISS vectors
-├── clip_keyframe_metadata.json            # ordered row records
-└── clip_keyframe_index.json               # index manifest
+data_processed/indexes/clip/
+├── global.index                 # FAISS vectors
+├── global_rows.json             # ordered row records
+├── manifest.json                # index manifest (written last)
+└── playlist/
+    ├── <playlist>.index
+    └── <playlist>_rows.json
 ```
 
 Each row record includes `index`, `batch`, `video_name`,

@@ -132,22 +132,27 @@ were compatible. Keep each generated JSON sidecar with its `.npy` feature file.
 
 ## Build the FAISS index
 
-Run index construction only after feature extraction. The builder deliberately
-has no video or batch filter: it always scans every valid `.npy` for the selected
-model so a partial run cannot overwrite a complete index.
+Run Phase 3 (index construction and SQLite catalog import) only after feature
+extraction. The builder always scans every valid `.npy` for the selected model
+so a partial run cannot overwrite a complete index:
 
 ```bash
+uv run python -m data_processing.cli phase3 --model clip
+# Or index only:
 uv run python -m data_processing.phase2_feature_extraction.build_index \
   --model clip
 ```
 
-The global output is:
+The output layout under `data_processed/indexes/<model>/` is:
 
 ```text
-data_processed/indexes/
-├── clip_keyframe_embedding.index
-├── clip_keyframe_metadata.json
-└── clip_keyframe_index.json
+data_processed/indexes/clip/
+├── global.index
+├── global_rows.json
+├── manifest.json
+└── playlist/
+    ├── <playlist>.index
+    └── <playlist>_rows.json
 ```
 
 The FAISS index uses exact inner-product search. Because all CLIP features are
