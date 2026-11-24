@@ -22,17 +22,13 @@ therefore required on first use unless the checkpoint is already cached.
 
 ## Run Phase 2
 
-Phase 1 must finish successfully before Phase 2. To embed every completed video
-in a batch:
+Phase 1 must finish successfully before Phase 2. Specify exactly one selector
+(`--video`, `--batch`, `--all`, or a Phase 1 result path):
 
 ```bash
-uv run python -m data_processing.cli phase2 --batch Videos_L21
-```
-
-To process all completed Phase 1 results:
-
-```bash
-uv run python -m data_processing.cli phase2
+uv run python -m data_processing.cli phase2 --batch Videos_L21 Videos_L22
+uv run python -m data_processing.cli phase2 --video L21_V001 L21_V002
+uv run python -m data_processing.cli phase2 --all --model clip
 ```
 
 To process one video result directory:
@@ -115,8 +111,10 @@ uv run python -m data_processing.cli phase2 /path/to/transnetv2 \
   --output-root /path/to/features
 ```
 
-The `--model` option names the feature/index directory key. Select another
-Hugging Face CLIP checkpoint or local checkpoint directory with `--checkpoint`:
+The `--model` option selects a registered model from
+`data_processing/phase2_feature_extraction/models.py` (`MODELS`), which also sets
+the feature/index directory key. Override the default Hugging Face checkpoint
+or local checkpoint directory with `--checkpoint`:
 
 ```bash
 uv run python -m data_processing.cli phase2 --batch Videos_L21 \

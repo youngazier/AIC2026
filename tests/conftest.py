@@ -74,7 +74,12 @@ def data_tree(tmp_path: Path, tiny_video: Path, monkeypatch) -> Path:
         '{"L21_V001": "news", "L21_V002": "news", "L22_V001": "sports"}\n'
     )
     monkeypatch.setattr(phase1_pipeline, "PROJECT_ROOT", root)
+    monkeypatch.setattr(phase1_pipeline, "DEFAULT_OUTPUT_ROOT", root / "data_processed/transnetv2")
+    monkeypatch.setattr(phase1_pipeline, "DEFAULT_WEIGHTS", root / "weights.pth")
     monkeypatch.setattr(phase2_pipeline, "PROJECT_ROOT", root)
+    monkeypatch.setattr(phase2_pipeline, "DEFAULT_PHASE1_ROOT", root / "data_processed/transnetv2")
+    monkeypatch.setattr(phase2_pipeline, "DEFAULT_KEYFRAME_ROOT", root / "data_processed/keyframes")
+    monkeypatch.setattr(phase2_pipeline, "DEFAULT_OUTPUT_ROOT", root / "data_processed/features")
     return root
 
 

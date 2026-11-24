@@ -327,8 +327,8 @@ apply to everyone.
 
 ## Checklist
 
-- [ ] 1. Selectors `--video`, `--batch`, `--all` for Phase 1 and 2
-- [ ] 2. Model registry
+- [x] 1. Selectors `--video`, `--batch`, `--all` for Phase 1 and 2
+- [x] 2. Model registry
 - [ ] 3. `phase3` command (index and catalog import), safe index build, new `indexes/<model>/` layout
 - [x] 4. Skip checks without mtimes, `Videos_L21` reprocessed
 - [ ] 5. Quick skip check with `--verify`, Phase 2 skip before image checks

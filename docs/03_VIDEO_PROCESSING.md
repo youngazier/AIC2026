@@ -13,8 +13,10 @@ must be installed. The TransNetV2 checkpoint is bundled in
 # Detect shots and extract keyframes for one video.
 uv run python -m data_processing.cli phase1 data/videos/Videos_L21/L21_V001.mp4
 
-# Process a batch. Omit --batch to process all downloaded videos.
-uv run python -m data_processing.cli phase1 --batch Videos_L21 --device gpu
+# Select specific videos, multiple batches, or all downloaded Videos_L* batches.
+uv run python -m data_processing.cli phase1 --video L21_V001 L21_V002
+uv run python -m data_processing.cli phase1 --batch Videos_L21 Videos_L22 --device gpu
+uv run python -m data_processing.cli phase1 --all --device gpu
 
 # Shot detection only, with an optional visualization.
 uv run python -m data_processing.cli transnetv2 --batch Videos_L21 --visualize
@@ -22,7 +24,7 @@ uv run python -m data_processing.cli transnetv2 --batch Videos_L21 --visualize
 
 Options: `--device auto|cpu|gpu|cuda` (default `auto`), `--threshold 0.5`,
 `--visualize`, `--force`, `--weights PATH`, and `--output-root PATH`.
-Use either a video/directory argument or `--batch`.
+Specify exactly one selector: a video/directory argument, `--video`, `--batch`, or `--all`.
 
 ## Outputs
 

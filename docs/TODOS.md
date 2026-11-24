@@ -119,8 +119,8 @@ SQLite video/shot references, without a web server.
 # Detect shots and extract one middle keyframe per shot.
 uv run python -m data_processing.cli phase1 --batch Videos_L21
 
-# Encode completed keyframes with CLIP.
-uv run python -m data_processing.cli phase2 --batch Videos_L21
+# Encode completed keyframes with a registered model (default: clip).
+uv run python -m data_processing.cli phase2 --batch Videos_L21 --model clip
 
 # Build/update the complete FAISS index from all feature files.
 uv run python -m data_processing.phase2_feature_extraction.build_index --model clip

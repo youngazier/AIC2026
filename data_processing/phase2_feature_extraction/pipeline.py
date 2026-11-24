@@ -1,5 +1,6 @@
 """Encode Phase 1 keyframes into one NumPy feature file per video."""
 
+from collections.abc import Sequence
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import fcntl
@@ -14,7 +15,9 @@ import numpy as np
 from PIL import Image
 import torch
 
+from ..phase1_keyframe_extraction.pipeline import video_identity
 from .clip_embedding import CLIPEmbedding
+from .models import MODELS, resolve_model
 
 
 LOGGER = logging.getLogger(__name__)
@@ -260,24 +263,60 @@ def process_result(result_dir: Path, *, keyframe_root: Path, model_dir: Path,
         shutil.rmtree(work_dir, ignore_errors=True)
 
 
-def run_pipeline(input_path: Path = DEFAULT_PHASE1_ROOT, *,
+def _select_phase1_results(videos: Sequence[Path], phase1_root: Path) -> tuple[list[Path], int]:
+    """Map selected source video paths to completed Phase 1 directories."""
+    results: list[Path] = []
+    identities: set[str] = set()
+    missing = 0
+    for video_path in videos:
+        batch, video_name = video_identity(Path(video_path))
+        if video_name in identities:
+            raise ValueError(f"Duplicate Phase 1 video identity: {video_name}")
+        identities.add(video_name)
+        candidate = phase1_root / batch / video_name
+        try:
+            phase1, _ = read_phase1_result(candidate)
+        except (OSError, ValueError, KeyError, TypeError):
+            phase1 = None
+        if not isinstance(phase1, dict) or phase1.get("mode") != "phase1":
+            LOGGER.error("%s: no Phase 1 output at %s", video_name, candidate)
+            missing += 1
+            continue
+        results.append(candidate)
+    if not results and not missing:
+        raise ValueError("No input videos provided")
+    return results, missing
+
+
+def run_pipeline(input_path: Path | Sequence[Path] = DEFAULT_PHASE1_ROOT, *,
+                 phase1_root: Path | None = None,
                  keyframe_root: Path = DEFAULT_KEYFRAME_ROOT,
                  output_root: Path = DEFAULT_OUTPUT_ROOT,
-                 model_name: str = CLIPEmbedding.DEFAULT_MODEL,
+                 model_name: str | None = None,
                  model_key: str = DEFAULT_MODEL_KEY, device: str = "auto",
                  batch_size: int = 64, force: bool = False,
-                 embedder_factory=CLIPEmbedding) -> dict[str, int]:
+                 embedder_factory=None) -> dict[str, int]:
     """Encode every selected Phase 1 result into model-scoped `.npy` files."""
     if batch_size < 1:
         raise ValueError("Batch size must be at least 1")
     allowed = "abcdefghijklmnopqrstuvwxyz0123456789-_"
     if not model_key or any(character not in allowed for character in model_key):
         raise ValueError("Model key may contain only lowercase letters, digits, '-' and '_'")
-    input_path, keyframe_root, output_root = (Path(value).resolve() for value in
-                                              (input_path, keyframe_root, output_root))
+    if embedder_factory is None:
+        embedder_factory, model_name = resolve_model(model_key, model_name)
+    elif model_name is None:
+        model_name = MODELS[model_key][1] if model_key in MODELS else CLIPEmbedding.DEFAULT_MODEL
+
+    keyframe_root = Path(keyframe_root).resolve()
+    output_root = Path(output_root).resolve()
     if output_root.is_relative_to(PROJECT_ROOT / "data"):
         raise ValueError("data/ is reserved for competition inputs")
-    results = discover_phase1_results(input_path)
+    if isinstance(input_path, (str, Path)):
+        results = discover_phase1_results(Path(input_path))
+        missing = 0
+    else:
+        resolved_phase1 = (phase1_root or DEFAULT_PHASE1_ROOT).resolve()
+        results, missing = _select_phase1_results(input_path, resolved_phase1)
     model_dir = output_root / model_key
     model_dir.mkdir(parents=True, exist_ok=True)
     embedder = None
@@ -288,7 +327,7 @@ def run_pipeline(input_path: Path = DEFAULT_PHASE1_ROOT, *,
             embedder = embedder_factory(model_name=model_name, device=device)
         return embedder
 
-    summary = {"processed": 0, "skipped": 0, "failed": 0}
+    summary = {"processed": 0, "skipped": 0, "failed": missing}
     with _processing_lock(model_dir):
         shutil.rmtree(model_dir / ".work", ignore_errors=True)
         for index, result in enumerate(results, 1):

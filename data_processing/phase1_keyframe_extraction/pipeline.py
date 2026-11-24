@@ -1,5 +1,6 @@
 """Sequential video processing with one small result directory per video."""
 
+from collections.abc import Sequence
 from contextlib import contextmanager
 import fcntl
 import json
@@ -181,7 +182,7 @@ def process_video(video_path: Path, *, output_root: Path, weights: Path,
             pass
 
 
-def run_pipeline(input_path: Path, *, output_root: Path = DEFAULT_OUTPUT_ROOT,
+def run_pipeline(input_path: Path | Sequence[Path], *, output_root: Path = DEFAULT_OUTPUT_ROOT,
                  weights: Path = DEFAULT_WEIGHTS, mode: str = "phase1", threshold: float = 0.5,
                  device: str = "auto", force: bool = False, visualize: bool = False) -> dict[str, int]:
     if mode not in {"phase1", "transnetv2"}:
@@ -193,7 +194,17 @@ def run_pipeline(input_path: Path, *, output_root: Path = DEFAULT_OUTPUT_ROOT,
         raise ValueError("data/ is reserved for competition inputs; choose an output directory outside it")
     if not weights.is_file():
         raise ValueError(f"Checkpoint missing: {weights}. See docs/03_VIDEO_PROCESSING.md for setup")
-    videos = discover_videos(input_path)
+    if isinstance(input_path, (str, Path)):
+        videos = discover_videos(Path(input_path))
+    else:
+        videos = []
+        for path in input_path:
+            resolved = Path(path).resolve()
+            if not resolved.is_file() or resolved.suffix.lower() not in VIDEO_EXTENSIONS:
+                raise ValueError(f"Unsupported or missing video file: {path}")
+            videos.append(resolved)
+        if not videos:
+            raise ValueError("No input videos provided")
     destinations = set()
     for path in videos:
         identity = video_identity(path)
