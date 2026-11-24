@@ -1,0 +1,5 @@
+*
+!data_processing/
+!data_processing/**
+**/__pycache__/
+**/*.pyc

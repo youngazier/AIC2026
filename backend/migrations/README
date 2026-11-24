@@ -1,0 +1,12 @@
+Local SQLite catalog migrations.
+
+From the project root:
+  uv run alembic upgrade head
+  uv run alembic current
+  uv run alembic check
+
+Override the project-relative or absolute file path:
+  uv run alembic -x database_path=data_processed/database/test.sqlite3 upgrade head
+
+The environment reuses backend.app.database SQLite connection settings.
+Downgrade to base deletes all catalog tables and their contents.

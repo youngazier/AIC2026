@@ -1,0 +1,60 @@
+# Offline processing services. Run from this directory:
+#
+#   docker compose build                          # CPU image
+#   docker compose run --rm phase1 --batch Videos_L21
+#   docker compose run --rm phase2 --batch Videos_L21
+#   docker compose run --rm index
+#
+#   docker compose --profile gpu build            # CUDA image
+#   docker compose --profile gpu run --rm phase1-gpu --batch Videos_L21
+#   docker compose --profile gpu run --rm phase2-gpu --batch Videos_L21
+#
+# Arguments after the service name are passed to the CLI, exactly like
+# `uv run python -m data_processing.cli phase1 ...`.
+
+# Settings shared by every service (a YAML anchor, reused with <<: *common).
+x-common: &common
+  image: aic2026-processing:cpu
+  build:
+    context: ..
+    dockerfile: data_processing/Dockerfile
+    args:
+      TORCH_INDEX_URL: https://download.pytorch.org/whl/cpu
+  # Write output files as your host user instead of root.
+  user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+  volumes:
+    - ../data:/app/data:ro                        # competition inputs, read-only
+    - ../data_processed:/app/data_processed       # all generated artifacts
+    - ${HF_CACHE_DIR:-~/.cache/huggingface}:/hf-cache  # reuse downloaded CLIP weights
+
+x-gpu: &gpu
+  image: aic2026-processing:gpu
+  build:
+    context: ..
+    dockerfile: data_processing/Dockerfile
+    args:
+      TORCH_INDEX_URL: https://download.pytorch.org/whl/cu130
+  profiles: ["gpu"]
+  gpus: all
+
+services:
+  phase1:
+    <<: *common
+    entrypoint: ["python", "-m", "data_processing.cli", "phase1"]
+
+  phase2:
+    <<: *common
+    entrypoint: ["python", "-m", "data_processing.cli", "phase2"]
+
+  index:
+    <<: *common
+    entrypoint: ["python", "-m", "data_processing.phase2_feature_extraction.build_index"]
+    command: ["--model", "clip"]
+
+  phase1-gpu:
+    <<: [*gpu, *common]
+    entrypoint: ["python", "-m", "data_processing.cli", "phase1", "--device", "gpu"]
+
+  phase2-gpu:
+    <<: [*gpu, *common]
+    entrypoint: ["python", "-m", "data_processing.cli", "phase2", "--device", "gpu"]
