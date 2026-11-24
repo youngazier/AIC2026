@@ -51,13 +51,9 @@ uv run python -m data_processing.cli phase2 \
 Reduce `--batch-size` if GPU memory is insufficient. `gpu` is an alias for
 `cuda`; `cpu` forces CPU inference.
 
-The command prints a summary and exits nonzero if any video fails:
-
-```text
-Processed: 4; skipped: 10; failed: 1
-```
-
-One bad video does not stop the remaining videos in the selected input.
+The command prints a summary (`processed N, skipped N, failed N`) and exits
+nonzero if any video fails. One bad video does not stop the remaining videos
+in the selected input.
 
 ## Output layout
 
@@ -88,10 +84,14 @@ Before loading CLIP, Phase 2 verifies that:
 - `shots.json` contains one matching keyframe reference per shot.
 - Every keyframe exists and is readable.
 
-An unchanged valid Phase 2 result is skipped. A result is rebuilt when the
-Phase 1 `shots.json` SHA-256 hash (`input_shots_sha256`), model identity,
-representation version, pipeline version, or saved feature structure changes.
-Use `--force` after replacing a valid keyframe while preserving `shots.json`:
+An unchanged valid Phase 2 result is skipped before opening any keyframe image.
+A result is rebuilt when the Phase 1 `shots.json` SHA-256 hash
+(`input_shots_sha256`), model identity, representation version, pipeline
+version, or saved feature structure changes. When processing (or when `--verify`
+is passed), Phase 2 validates and decodes every keyframe image before loading
+the embedding model. Leftover `.work/` and `.*.backup-*` crash artifacts are
+cleaned up at the start of each run. Use `--force` after replacing a valid
+keyframe while preserving `shots.json`:
 
 ```bash
 uv run python -m data_processing.cli phase2 --batch Videos_L21 --force

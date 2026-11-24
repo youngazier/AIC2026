@@ -131,7 +131,7 @@ def validate_phase1_input(result_dir: Path, keyframe_root: Path) -> tuple[dict, 
             raise ValueError(f"Missing Phase 1 keyframe: {path}")
         try:
             with Image.open(path) as image:
-                image.verify()
+                image.load()
         except (OSError, ValueError) as exc:
             raise ValueError(f"Unreadable Phase 1 keyframe: {path}") from exc
         images.append(path)
@@ -200,11 +200,30 @@ def _publish_pair(staged_feature: Path, staged_metadata: Path,
     metadata_backup.unlink(missing_ok=True)
 
 
+def _cleanup_leftovers(model_dir: Path) -> None:
+    """Remove leftover .work/ directories and .*.backup-* crash artifacts."""
+    if not model_dir.is_dir():
+        return
+    shutil.rmtree(model_dir / ".work", ignore_errors=True)
+    for entry in model_dir.iterdir():
+        if entry.name.startswith(".") and ".backup-" in entry.name:
+            if entry.is_dir() and not entry.is_symlink():
+                shutil.rmtree(entry, ignore_errors=True)
+            else:
+                entry.unlink(missing_ok=True)
+
+
 def process_result(result_dir: Path, *, keyframe_root: Path, model_dir: Path,
                    get_embedder, model_name: str, batch_size: int,
-                   force: bool = False) -> tuple[str, Path]:
+                   force: bool = False, verify: bool = False) -> tuple[str, Path]:
     """Encode one video and atomically publish its feature/metadata pair."""
-    phase1, shots, images = validate_phase1_input(result_dir, keyframe_root)
+    try:
+        phase1, _ = read_phase1_result(result_dir)
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise ValueError(f"Unreadable Phase 1 result: {result_dir}") from exc
+    if phase1.get("mode") != "phase1" or not {"batch", "video_name", "pipeline_version"}.issubset(phase1):
+        raise ValueError(f"Phase 1 result is not completed or lacks provenance: {result_dir}")
+
     video_name = phase1["video_name"]
     feature_path = model_dir / f"{video_name}.npy"
     sidecar = metadata_path(feature_path)
@@ -220,6 +239,8 @@ def process_result(result_dir: Path, *, keyframe_root: Path, model_dir: Path,
     if (result_dir / "manifest.json").is_file():
         expected["input_manifest_sha256"] = _sha256(result_dir / "manifest.json")
     if not force:
+        if verify:
+            validate_phase1_input(result_dir, keyframe_root)
         try:
             validate_result(feature_path, expected)
             LOGGER.info("SKIPPED %s: %s", video_name, feature_path)
@@ -227,6 +248,7 @@ def process_result(result_dir: Path, *, keyframe_root: Path, model_dir: Path,
         except ValueError:
             pass
 
+    phase1, shots, images = validate_phase1_input(result_dir, keyframe_root)
     embedder = get_embedder()
     work_dir = model_dir / ".work" / f"{video_name}-{uuid4().hex}"
     work_dir.mkdir(parents=True)
@@ -295,6 +317,7 @@ def run_pipeline(input_path: Path | Sequence[Path] = DEFAULT_PHASE1_ROOT, *,
                  model_name: str | None = None,
                  model_key: str = DEFAULT_MODEL_KEY, device: str = "auto",
                  batch_size: int = 64, force: bool = False,
+                 verify: bool = False,
                  embedder_factory=None) -> dict[str, int]:
     """Encode every selected Phase 1 result into model-scoped `.npy` files."""
     if batch_size < 1:
@@ -329,14 +352,14 @@ def run_pipeline(input_path: Path | Sequence[Path] = DEFAULT_PHASE1_ROOT, *,
 
     summary = {"processed": 0, "skipped": 0, "failed": missing}
     with _processing_lock(model_dir):
-        shutil.rmtree(model_dir / ".work", ignore_errors=True)
+        _cleanup_leftovers(model_dir)
         for index, result in enumerate(results, 1):
             LOGGER.info("Phase 1 result %d/%d: %s", index, len(results), result)
             try:
                 status, _ = process_result(
                     result, keyframe_root=keyframe_root, model_dir=model_dir,
                     get_embedder=get_embedder, model_name=model_name,
-                    batch_size=batch_size, force=force,
+                    batch_size=batch_size, force=force, verify=verify,
                 )
                 summary[status] += 1
             except Exception:

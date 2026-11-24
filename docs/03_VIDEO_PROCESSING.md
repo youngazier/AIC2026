@@ -23,7 +23,7 @@ uv run python -m data_processing.cli transnetv2 --batch Videos_L21 --visualize
 ```
 
 Options: `--device auto|cpu|gpu|cuda` (default `auto`), `--threshold 0.5`,
-`--visualize`, `--force`, `--weights PATH`, and `--output-root PATH`.
+`--visualize`, `--force`, `--verify`, `--weights PATH`, and `--output-root PATH`.
 Specify exactly one selector: a video/directory argument, `--video`, `--batch`, or `--all`.
 
 ## Outputs
@@ -55,7 +55,11 @@ in memory; no timestamp array, separate metadata/manifest, or keyframe CSV is sa
 
 Valid unchanged results are skipped based on `source_key`, `source_size`,
 `checkpoint_size`, `upstream_revision`, and `pipeline_version` (no file
-modification times are pinned, so copied outputs still skip). Use `--force` to
+modification times are pinned, so copied outputs still skip). By default, skip
+checks verify artifact headers (`Image.open` without decoding pixels); pass
+`--verify` for a full pixel decode of every keyframe. Leftover `.work/` and
+`.*.backup-*` crash artifacts are cleaned up at the start of each run, and the
+summary prints `processed N, skipped N, failed N`. Use `--force` to
 rebuild. Rebuilding an old result replaces its extra per-video files with this
 layout; failed rebuilds keep the previous outputs. Phase 2 accepts both the new
 and legacy formats.

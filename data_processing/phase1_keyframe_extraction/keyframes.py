@@ -71,7 +71,8 @@ def extract_middle_keyframes(video_path: Path, metadata: dict, scenes: np.ndarra
 
 
 def validate_keyframes(image_dir: Path, image_path_prefix: str, records: list[dict],
-                       scenes: np.ndarray, timestamps: np.ndarray | None, metadata: dict) -> None:
+                       scenes: np.ndarray, timestamps: np.ndarray | None, metadata: dict,
+                       *, decode_images: bool = True) -> None:
     validate_shots(records, scenes)
     if timestamps is not None:
         for record, expected in zip(records, shot_records(scenes, timestamps), strict=True):
@@ -94,7 +95,8 @@ def validate_keyframes(image_dir: Path, image_path_prefix: str, records: list[di
                         "timestamp": expected_time, "image_path": f"{image_path_prefix}/{name}"}:
             raise ValueError("Expected exactly one middle keyframe with the correct source position")
         with Image.open(image_dir / name) as image:
-            image.load()
+            if decode_images:
+                image.load()
             if image.format != "JPEG" or image.size != (metadata["width"], metadata["height"]):
                 raise ValueError(f"Invalid full-resolution JPEG: {name}")
     if {p.name for p in image_dir.iterdir()} != expected_names:

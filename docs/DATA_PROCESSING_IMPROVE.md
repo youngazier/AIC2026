@@ -331,11 +331,11 @@ apply to everyone.
 - [x] 2. Model registry
 - [x] 3. `phase3` command (index and catalog import), safe index build, new `indexes/<model>/` layout
 - [x] 4. Skip checks without mtimes, `Videos_L21` reprocessed
-- [ ] 5. Quick skip check with `--verify`, Phase 2 skip before image checks
+- [x] 5. Quick skip check with `--verify`, Phase 2 skip before image checks
 - [ ] 6. Phase 2 DataLoader, batch size, fp16 option, timing line
 - [ ] 7. One compose file, GPU override, `all` command, old Docker files removed
 - [ ] 8. Merge instructions in `docs/03`
 - [ ] 9. Housekeeping
   - [x] Dependencies (`pgvector`, `psycopg[binary]`, `uv_build` pin) and `slow`/`gpu` pytest markers
-  - [ ] Leftover cleanup (`.*.backup-*` and `.work/`)
+  - [x] Leftover cleanup (`.*.backup-*` and `.work/`)
   - [ ] Tiny-video E2E test

@@ -64,7 +64,30 @@ def processing_lock(output_root: Path):
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 
-def validate_result(result_dir: Path, keyframe_dir: Path, result: dict) -> None:
+def _remove_entry(path: Path) -> None:
+    if path.is_dir() and not path.is_symlink():
+        shutil.rmtree(path, ignore_errors=True)
+    else:
+        path.unlink(missing_ok=True)
+
+
+def _cleanup_leftovers(*roots: Path) -> None:
+    """Remove leftover .work/ directories and .*.backup-* crash artifacts."""
+    for root in roots:
+        if not root.is_dir():
+            continue
+        _remove_entry(root / ".work")
+        for entry in root.iterdir():
+            if entry.name.startswith(".") and ".backup-" in entry.name:
+                _remove_entry(entry)
+            elif entry.is_dir() and not entry.name.startswith("."):
+                for child in entry.iterdir():
+                    if child.name.startswith(".") and ".backup-" in child.name:
+                        _remove_entry(child)
+
+
+def validate_result(result_dir: Path, keyframe_dir: Path, result: dict,
+                    *, decode_images: bool = True) -> None:
     stem = result["video_name"]
     required = {"shots.json", f"{stem}.predictions.txt", f"{stem}.scenes.txt"}
     predictions, scenes = read_detection(result_dir, stem, result["threshold"])
@@ -76,19 +99,22 @@ def validate_result(result_dir: Path, keyframe_dir: Path, result: dict) -> None:
     validate_shots(records, scenes)
     if result["mode"] == "phase1":
         validate_keyframes(keyframe_dir, f"keyframes/{result['batch']}/{stem}",
-                           records, scenes, None, metadata)
+                           records, scenes, None, metadata, decode_images=decode_images)
     elif result["mode"] != "transnetv2" or any("keyframe" in record for record in records):
         raise ValueError("Invalid processing mode or keyframe records")
     if result["visualize"]:
         required.add(f"{stem}.vis.png")
         with Image.open(result_dir / f"{stem}.vis.png") as image:
-            image.verify()
+            if decode_images:
+                image.load()
+            elif image.format != "PNG":
+                raise ValueError("Invalid visualization PNG")
     if {p.name for p in result_dir.iterdir()} != required:
         raise ValueError("Result must contain exactly the expected artifacts")
 
 
 def completed_result(video_dir: Path, keyframe_dir: Path, expected: dict,
-                     mode: str, visualize: bool) -> bool:
+                     mode: str, visualize: bool, *, verify: bool = False) -> bool:
     try:
         result = json.loads((video_dir / "shots.json").read_text())
         if not isinstance(result, dict) or any(result.get(k) != v for k, v in expected.items()):
@@ -97,7 +123,7 @@ def completed_result(video_dir: Path, keyframe_dir: Path, expected: dict,
             return False
         if visualize and not result.get("visualize"):
             return False
-        validate_result(video_dir, keyframe_dir, result)
+        validate_result(video_dir, keyframe_dir, result, decode_images=verify)
         return True
     except (OSError, ValueError, KeyError, TypeError, IndexError) as exc:
         LOGGER.debug("No reusable result for %s: %s", video_dir, exc)
@@ -134,7 +160,8 @@ def publish_result(staging_dir: Path, video_dir: Path, staging_keyframes: Path |
 
 def process_video(video_path: Path, *, output_root: Path, weights: Path,
                   get_detector, mode: str,
-                  threshold: float, force: bool, visualize: bool) -> tuple[str, Path]:
+                  threshold: float, force: bool, visualize: bool,
+                  verify: bool = False) -> tuple[str, Path]:
     batch, video_name = video_identity(video_path)
     video_dir = output_root / batch / video_name
     keyframe_dir = output_root.parent / "keyframes" / batch / video_name
@@ -146,7 +173,7 @@ def process_video(video_path: Path, *, output_root: Path, weights: Path,
         "pipeline_version": PIPELINE_VERSION, "threshold": threshold,
         "upstream_revision": UPSTREAM_REVISION,
     }
-    if not force and completed_result(video_dir, keyframe_dir, expected, mode, visualize):
+    if not force and completed_result(video_dir, keyframe_dir, expected, mode, visualize, verify=verify):
         LOGGER.info("SKIPPED %s: %s", video_name, video_dir)
         return "skipped", video_dir
 
@@ -184,7 +211,8 @@ def process_video(video_path: Path, *, output_root: Path, weights: Path,
 
 def run_pipeline(input_path: Path | Sequence[Path], *, output_root: Path = DEFAULT_OUTPUT_ROOT,
                  weights: Path = DEFAULT_WEIGHTS, mode: str = "phase1", threshold: float = 0.5,
-                 device: str = "auto", force: bool = False, visualize: bool = False) -> dict[str, int]:
+                 device: str = "auto", force: bool = False, visualize: bool = False,
+                 verify: bool = False) -> dict[str, int]:
     if mode not in {"phase1", "transnetv2"}:
         raise ValueError("Mode must be phase1 or transnetv2")
     if not np.isfinite(threshold) or not 0 <= threshold <= 1:
@@ -221,13 +249,13 @@ def run_pipeline(input_path: Path | Sequence[Path], *, output_root: Path = DEFAU
 
     summary = {"processed": 0, "skipped": 0, "failed": 0}
     with processing_lock(output_root):
-        shutil.rmtree(output_root / ".work", ignore_errors=True)
+        _cleanup_leftovers(output_root, output_root.parent / "keyframes")
         for index, path in enumerate(videos, 1):
             LOGGER.info("Video %d/%d: %s", index, len(videos), path)
             try:
                 status, _ = process_video(
                     path, output_root=output_root, weights=weights, get_detector=get_detector,
-                    mode=mode, threshold=threshold, force=force, visualize=visualize,
+                    mode=mode, threshold=threshold, force=force, visualize=visualize, verify=verify,
                 )
                 summary[status] += 1
             except Exception:

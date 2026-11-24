@@ -19,6 +19,7 @@ def add_commands(commands) -> None:
         command.add_argument("--device", choices=("auto", "cpu", "gpu", "cuda"), default="auto")
         command.add_argument("--threshold", type=float, default=0.5)
         command.add_argument("--force", action="store_true", help="Rebuild even if outputs validate")
+        command.add_argument("--verify", action="store_true", help="Deep skip check (decode every keyframe)")
         command.add_argument("--visualize", action="store_true", help="Save a detector contact sheet")
 
 
@@ -37,7 +38,7 @@ def run(args) -> int:
             videos, output_root=args.output_root or DEFAULT_OUTPUT_ROOT,
             weights=args.weights or DEFAULT_WEIGHTS, mode=args.command,
             threshold=args.threshold, device=args.device,
-            force=args.force, visualize=args.visualize,
+            force=args.force, visualize=args.visualize, verify=args.verify,
         )
     except (ValueError, OSError) as exc:
         logging.error("%s", exc)
@@ -45,7 +46,7 @@ def run(args) -> int:
     except KeyboardInterrupt:
         logging.error("Processing interrupted; rerun the command to retry")
         return 130
-    print("Processed: {processed}; skipped: {skipped}; failed: {failed}".format(**summary))
+    print("processed {processed}, skipped {skipped}, failed {failed}".format(**summary))
     return 1 if summary["failed"] else 0
 
 

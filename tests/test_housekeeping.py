@@ -94,3 +94,49 @@ def test_slow_and_gpu_markers_registered_and_excluded_by_default(tmp_path):
     assert "test_fast_default" not in slow_run.stdout
     assert "test_gpu_only" not in slow_run.stdout
     assert "2 deselected" in slow_run.stdout
+
+
+def test_leftover_backups_and_work_dirs_cleaned_while_skipping_finished_videos(
+    processed_tree: Path, stub_detector, stub_embedder, monkeypatch
+):
+    from data_processing.cli import main
+    from data_processing.phase2_feature_extraction.models import MODELS
+
+    monkeypatch.setitem(MODELS, "clip", (stub_embedder, stub_embedder.DEFAULT_MODEL))
+
+    p1_root = processed_tree / "data_processed/transnetv2"
+    kf_root = processed_tree / "data_processed/keyframes"
+    p1_backup_file = p1_root / ".X.backup-token"
+    p1_backup_dir = p1_root / "Videos_L21/.L21_V001.backup-token"
+    kf_backup_dir = kf_root / "Videos_L21/.L21_V001.backup-token"
+    p1_work = p1_root / ".work/leftover"
+    p1_backup_file.write_bytes(b"stale")
+    p1_backup_dir.mkdir(parents=True)
+    (p1_backup_dir / "old.json").write_text("{}")
+    kf_backup_dir.mkdir(parents=True)
+    (kf_backup_dir / "00000.jpg").write_bytes(b"stale")
+    p1_work.mkdir(parents=True)
+    (p1_work / "tmp.txt").write_text("stale")
+
+    assert main(["phase1", "--all"]) == 0
+    assert stub_detector.calls == 0
+    assert not p1_backup_file.exists()
+    assert not p1_backup_dir.exists()
+    assert not kf_backup_dir.exists()
+    assert not (p1_root / ".work").exists()
+
+    p2_dir = processed_tree / "data_processed/features/clip"
+    p2_backup_file = p2_dir / ".X.backup-token"
+    p2_backup_dir = p2_dir / ".Y.backup-token"
+    p2_work = p2_dir / ".work/leftover"
+    p2_backup_file.write_bytes(b"stale")
+    p2_backup_dir.mkdir(parents=True)
+    (p2_backup_dir / "old.npy").write_bytes(b"stale")
+    p2_work.mkdir(parents=True)
+    (p2_work / "tmp.npy").write_bytes(b"stale")
+
+    assert main(["phase2", "--all"]) == 0
+    assert stub_embedder.calls == 0
+    assert not p2_backup_file.exists()
+    assert not p2_backup_dir.exists()
+    assert not (p2_dir / ".work").exists()

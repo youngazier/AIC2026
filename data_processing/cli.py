@@ -26,6 +26,7 @@ def main(argv=None) -> int:
         help="Inference device: auto selects GPU when available; gpu is an alias for cuda",
     )
     phase2.add_argument("--force", action="store_true", help="Rebuild even when outputs validate")
+    phase2.add_argument("--verify", action="store_true", help="Deep skip check (decode every keyframe)")
 
     phase3 = commands.add_parser("phase3", help="Build FAISS indexes and import the SQLite catalog")
     phase3.add_argument("--model", default="clip", help="Registered model key, for example clip")
@@ -81,6 +82,7 @@ def main(argv=None) -> int:
                 device="cuda" if args.device == "gpu" else args.device,
                 batch_size=args.batch_size,
                 force=args.force,
+                verify=args.verify,
                 embedder_factory=embedder_cls,
             )
         except (ValueError, OSError) as exc:
@@ -89,7 +91,7 @@ def main(argv=None) -> int:
         except KeyboardInterrupt:
             logging.error("Processing interrupted; rerun the command to retry")
             return 130
-        print("Processed: {processed}; skipped: {skipped}; failed: {failed}".format(**summary))
+        print("processed {processed}, skipped {skipped}, failed {failed}".format(**summary))
         return 1 if summary["failed"] else 0
 
     return run_phase1(args)
