@@ -51,9 +51,12 @@ The middle frame is `start + (end - start) // 2`. Playback times come from decod
 presentation timestamps, not frame index divided by FPS. Frame timestamps stay
 in memory; no timestamp array, separate metadata/manifest, or keyframe CSV is saved.
 
-Valid unchanged results are skipped. Use `--force` to rebuild. Rebuilding an old
-result replaces its extra per-video files with this layout; failed rebuilds keep
-the previous outputs. Phase 2 accepts both the new and legacy formats.
+Valid unchanged results are skipped based on `source_key`, `source_size`,
+`checkpoint_size`, `upstream_revision`, and `pipeline_version` (no file
+modification times are pinned, so copied outputs still skip). Use `--force` to
+rebuild. Rebuilding an old result replaces its extra per-video files with this
+layout; failed rebuilds keep the previous outputs. Phase 2 accepts both the new
+and legacy formats.
 
 ## Docker
 

@@ -22,7 +22,7 @@ Phase 1 JSON feeds the catalog; Phase 2 JSON/NumPy feeds index rebuilds.
 - [x] Encode keyframes with CLIP and save one normalized `.npy` matrix per video.
 - [x] Save JSON row mappings and model/input provenance beside each matrix.
 - [x] Build global and optional playlist FAISS inner-product indexes with JSON row metadata.
-- [x] Compare source file names, sizes, and modification times to skip unchanged index construction.
+- [x] Compare source file names, feature sizes, and sidecar SHA-256 hashes to skip unchanged index construction.
 - [x] Document feature/index commands and artifacts in `04_FEATURE_EXTRACTION.md`.
 
 ### M3 — SQLite catalog and schema

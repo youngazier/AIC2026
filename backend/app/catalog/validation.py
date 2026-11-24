@@ -144,14 +144,13 @@ def _prepare_catalog_video(manifest: Path, root: Path) -> PreparedCatalogVideo:
     threshold = _seconds(result["threshold"], "threshold", minimum=0)
     if threshold > 1 or type(result["visualize"]) is not bool:
         raise CatalogValidationError("Invalid threshold or visualization setting")
-    for field in ("source_size", "source_mtime_ns", "checkpoint_mtime_ns"):
+    for field in ("source_size", "checkpoint_size"):
         _integer(result[field], field)
     source_key = _key(result["source_key"], "source_key")
     source = _file(root, source_key, video_root.resolve())
     if source.suffix.lower() not in VIDEO_EXTENSIONS or video_identity(source) != (batch, name):
         raise CatalogValidationError("Source video identity or extension disagrees with manifest")
-    source_stat = source.stat()
-    if (source_stat.st_size, source_stat.st_mtime_ns) != (result["source_size"], result["source_mtime_ns"]):
+    if source.stat().st_size != result["source_size"]:
         raise CatalogValidationError("Source video changed since Phase 1 processing")
 
     metadata = result["metadata"]

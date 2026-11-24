@@ -59,7 +59,7 @@ def phase1(tmp_path: Path, request):
     else:
         (result / "shots.json").write_text(json.dumps({
             "mode": "phase1", "batch": "Videos_L21", "video_name": "L21_V001",
-            "pipeline_version": "phase1-middle-v3", "shots": records,
+            "pipeline_version": "phase1-middle-v4", "shots": records,
         }))
     return phase1_root, keyframe_root, result
 

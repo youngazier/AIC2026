@@ -93,9 +93,9 @@ Before loading CLIP, Phase 2 verifies that:
 - Every keyframe exists and is readable.
 
 An unchanged valid Phase 2 result is skipped. A result is rebuilt when the
-Phase 1 `shots.json` modification time, model identity, representation version, or
-saved feature structure changes. Use `--force` after replacing a valid
-keyframe while preserving `shots.json`:
+Phase 1 `shots.json` SHA-256 hash (`input_shots_sha256`), model identity,
+representation version, pipeline version, or saved feature structure changes.
+Use `--force` after replacing a valid keyframe while preserving `shots.json`:
 
 ```bash
 uv run python -m data_processing.cli phase2 --batch Videos_L21 --force
@@ -155,8 +155,8 @@ data_processed/indexes/
 The FAISS index uses exact inner-product search. Because all CLIP features are
 L2-normalized, inner product is cosine similarity. The metadata file maps every
 FAISS row back to its video, keyframe, shot, timestamp, and source image. The
-index manifest records source file names, sizes, and modification times for
-unchanged-run skipping.
+index manifest records source file names, feature sizes, and sidecar SHA-256
+hashes for unchanged-run skipping.
 
 Build every model directory currently containing features with:
 

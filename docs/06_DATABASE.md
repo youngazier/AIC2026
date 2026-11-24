@@ -194,7 +194,7 @@ prepared = prepare_catalog_video(
 It returns immutable video, shot, and keyframe records without opening SQLite.
 Paths remain relative keys, and recorded presentation timestamps are preserved.
 It reuses Phase 1 artifact validation and checks catalog metadata, processing
-provenance, source size/mtime, identity, and file containment. Invalid inputs
+provenance, source size, identity, and file containment. Invalid inputs
 raise `CatalogValidationError`. The importer calls it before beginning its
 write transaction and supplies a UTC `imported_at` value on successful import.
 `import_video()` holds the existing Phase 1 `.processing.lock` during validation
@@ -202,8 +202,8 @@ and through commit, so publication and import cannot overlap. A busy lock fails
 with a clear error; rerun after Phase 1 completes. File signatures also detect
 changes made during validation outside that locking protocol.
 
-The validator requires the source video to exist and match the recorded size
-and modification time. It checks the detector artifacts and fully decodes each
+The validator requires the source video to exist and match the recorded size.
+It checks the detector artifacts and fully decodes each
 JPEG using the existing Phase 1 validator; it does not rerun video decoding or
 shot detection. Prepared records omit `imported_at`, which belongs to the
 successful import. Duplicate names across batches require a database lookup
@@ -305,19 +305,19 @@ Each row record includes `index`, `batch`, `video_name`,
 `embedding_index`, `keyframe_name`, `shot_index`, `frame_index`, `timestamp`,
 and `image_path`. The manifest includes `index_version`, `metric`,
 `normalized_features`, `vector_count`, `dimension`, and source file names,
-sizes, and modification times. Optional playlist
+feature sizes, and sidecar SHA-256 hashes. Optional playlist
 indexes live under `indexes/playlist/` and have their own independent row
 numbers, metadata, and manifest.
 
 At API startup, load the matching index, row metadata, and manifest as one
 snapshot. Verify index type/metric, dimension, vector count, contiguous row
 indices, finite values, model and representation compatibility with the text
-encoder. Check each source sidecar's `input_shots_mtime_ns` against its
+encoder. Check each source sidecar's `input_shots_sha256` against its
 current Phase 1 `shots.json`. Check every row's video/shot/keyframe
 against the synchronized catalog. A missing or inconsistent set makes search
 unready; the catalog and media routes can remain available.
 
-The builder compares source file names, sizes, and modification times before
+The builder compares source file names, feature sizes, and sidecar SHA-256 hashes before
 skipping a rebuild and publishes the manifest last. Validate the loaded index
 and row metadata before serving search. Keep the CLI indexer as the rebuild
 path. After new features, rebuild the full index and restart the API to load

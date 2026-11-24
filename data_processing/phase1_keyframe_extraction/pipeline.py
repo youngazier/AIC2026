@@ -22,7 +22,7 @@ LOGGER = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "data_processed" / "transnetv2"
 DEFAULT_WEIGHTS = Path(__file__).resolve().parent / "transnetv2" / "transnetv2-pytorch-weights.pth"
-PIPELINE_VERSION = "phase1-middle-v3"
+PIPELINE_VERSION = "phase1-middle-v4"
 
 
 def video_identity(path: Path) -> tuple[str, str]:
@@ -141,8 +141,7 @@ def process_video(video_path: Path, *, output_root: Path, weights: Path,
     expected = {
         "source_key": Path(os.path.relpath(video_path, PROJECT_ROOT)).as_posix(),
         "source_size": video_path.stat().st_size,
-        "source_mtime_ns": video_path.stat().st_mtime_ns,
-        "checkpoint_mtime_ns": weights.stat().st_mtime_ns,
+        "checkpoint_size": weights.stat().st_size,
         "pipeline_version": PIPELINE_VERSION, "threshold": threshold,
         "upstream_revision": UPSTREAM_REVISION,
     }

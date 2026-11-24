@@ -338,7 +338,7 @@ def test_source_and_configuration_changes_invalidate_run(dataset):
     assert run(dataset, threshold=.8)["processed"] == 1
     assert (result_dir(dataset) / "shots.json").read_bytes() != previous_shots
     video, _, _ = dataset
-    make_video(video, pts=(0, 40, 80, 120, 160))
+    make_video(video, pts=(0, 40, 80, 120, 160, 200))
     assert run(dataset, threshold=.8)["processed"] == 1
 
 

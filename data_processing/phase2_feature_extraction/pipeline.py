@@ -3,6 +3,7 @@
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import fcntl
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -22,8 +23,12 @@ DEFAULT_PHASE1_ROOT = PROJECT_ROOT / "data_processed" / "transnetv2"
 DEFAULT_KEYFRAME_ROOT = PROJECT_ROOT / "data_processed" / "keyframes"
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "data_processed" / "features"
 DEFAULT_MODEL_KEY = "clip"
-PIPELINE_VERSION = "phase2-features-v2"
+PIPELINE_VERSION = "phase2-features-v3"
 REPRESENTATION_VERSION = "clip-l2-v1"
+
+
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _now() -> str:
@@ -204,13 +209,13 @@ def process_result(result_dir: Path, *, keyframe_root: Path, model_dir: Path,
         "pipeline_version": PIPELINE_VERSION,
         "representation_version": REPRESENTATION_VERSION,
         "model_name": model_name,
-        "input_shots_mtime_ns": (result_dir / "shots.json").stat().st_mtime_ns,
+        "input_shots_sha256": _sha256(result_dir / "shots.json"),
         "batch": phase1["batch"],
         "video_name": video_name,
     }
     # Old results keep their provenance in a separate file until Phase 1 reruns.
     if (result_dir / "manifest.json").is_file():
-        expected["input_manifest_mtime_ns"] = (result_dir / "manifest.json").stat().st_mtime_ns
+        expected["input_manifest_sha256"] = _sha256(result_dir / "manifest.json")
     if not force:
         try:
             validate_result(feature_path, expected)

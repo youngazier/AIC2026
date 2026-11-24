@@ -24,8 +24,8 @@ def published(tmp_path):
     result = dict(
         batch='Videos_L21', video_name='L21_V001', mode='phase1',
         source_key=source.relative_to(tmp_path).as_posix(),
-        source_size=source.stat().st_size, source_mtime_ns=source.stat().st_mtime_ns,
-        checkpoint_mtime_ns=1, pipeline_version='phase1-middle-v3', upstream_revision='test',
+        source_size=source.stat().st_size,
+        checkpoint_size=1, pipeline_version='phase1-middle-v4', upstream_revision='test',
         threshold=0.5, visualize=False, frame_count=3,
         metadata=dict(stream_index=0, codec='h264', width=8, height=6,
                       duration_seconds=1.0, average_fps=25.0, timeline_origin_seconds=-0.2),

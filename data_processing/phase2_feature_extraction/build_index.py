@@ -2,6 +2,7 @@
 
 import argparse
 from collections import defaultdict
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -59,8 +60,9 @@ def load_model_features(model_dir: Path) -> tuple[np.ndarray, list[dict], list[d
             "model_name": metadata["model_name"],
             "representation_version": metadata["representation_version"],
             "feature_size": feature_path.stat().st_size,
-            "feature_mtime_ns": feature_path.stat().st_mtime_ns,
-            "metadata_mtime_ns": feature_path.with_suffix(".json").stat().st_mtime_ns,
+            "metadata_sha256": hashlib.sha256(
+                feature_path.with_suffix(".json").read_bytes()
+            ).hexdigest(),
         })
     if not vectors:
         raise ValueError(f"No valid feature files found in {model_dir}")
