@@ -47,12 +47,12 @@ uv run python -m data_processing.cli phase2 \
   --batch Videos_L21 \
   --device gpu \
   --batch-size 512 \
-  --workers 4 \
+  --workers 0 \
   --precision fp32
 ```
 
 - `--batch-size`: defaults to `512` (largest of 64/128/256/512 staying under 75% VRAM on the GTX 1650 Ti). Reduce `--batch-size` if GPU memory is tighter.
-- `--workers`: defaults to `min(4, cpu_count - 1)` on GPU and `0` (main process) on CPU.
+- `--workers`: defaults to `0` (load in the main process) on both CPU and GPU.
 - `--precision`: `fp32` (default) or `fp16` (`torch.autocast` compute). Embeddings are always normalized in `fp32` and saved as `float32`, with `precision` recorded in each JSON sidecar.
 
 On CUDA runs, Phase 2 logs the GPU device name once, one timing line per processed video, and a total `images/s` summary at the end.
@@ -78,6 +78,8 @@ Measured on NVIDIA GeForce GTX 1650 Ti (3729.4 MiB VRAM; 75% ceiling = 2797.0 Mi
 | DataLoader | `fp16` | 128 | 4 | 17.79s | 34.7 img/s | 848.8 MiB (22.8%) |
 | DataLoader | `fp16` | 256 | 4 | 19.44s | 31.7 img/s | 1112.5 MiB (29.8%) |
 | DataLoader | `fp16` | 512 | 4 | 23.66s | 26.1 img/s | 1629.3 MiB (43.7%) |
+
+Note: the DataLoader rows in this table all used `4` workers and have no `0`-worker DataLoader baseline, so the table does not show the effect of `--workers` on throughput (`--workers` defaults to `0`).
 
 On 200 sample keyframes from `Videos_L21`, DataLoader `fp32` matched the legacy path within `9.65e-07` max absolute difference, and `fp16` vs `fp32` kept cosine similarity `min=0.999972` (`mean=0.999998`, threshold `>= 0.999`). Default remains `fp32` because it was faster than `fp16` on the GTX 1650 Ti and avoids precision mismatches with CPU runs.
 

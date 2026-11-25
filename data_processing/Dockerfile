@@ -30,7 +30,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     pip install "uv>=0.13,<0.14" \
     && uv export --frozen --no-dev --no-hashes --no-emit-project --no-header --no-annotate -o /tmp/requirements.txt \
     && grep -E '^torch==' /tmp/requirements.txt > /tmp/torch.txt \
-    && grep -vE '^(torch|nvidia-|cuda-|triton)==' /tmp/requirements.txt > /tmp/deps.txt \
+    && grep -vE '^(torch==|triton==|nvidia-|cuda-)' /tmp/requirements.txt > /tmp/deps.txt \
     && pip install --index-url "${TORCH_INDEX_URL}" -r /tmp/torch.txt \
     && pip install --no-deps -r /tmp/deps.txt \
     && rm -f /tmp/requirements.txt /tmp/torch.txt /tmp/deps.txt

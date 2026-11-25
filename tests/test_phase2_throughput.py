@@ -352,3 +352,30 @@ def test_fp16_cosine_similarity_and_sidecar_on_gpu(tmp_path: Path):
     cos = (v32 * v16).sum(axis=1)
     assert float(cos.min()) >= 0.999
     assert json.loads((out16 / "clip/SAMPLE200.json").read_text())["precision"] == "fp16"
+
+
+def test_default_workers_is_zero_on_cpu_and_cuda(tmp_path: Path, monkeypatch):
+    assert phase2_pipeline.DEFAULT_WORKERS == 0
+
+    seen_num_workers: list[int] = []
+    real_dataloader = phase2_pipeline.DataLoader
+
+    def recording_dataloader(*args, **kwargs):
+        seen_num_workers.append(kwargs.get("num_workers", 0))
+        return real_dataloader(*args, **kwargs)
+
+    monkeypatch.setattr(phase2_pipeline, "DataLoader", recording_dataloader)
+
+    class FakeCudaEmbedder:
+        device = torch.device("cuda", 0)
+
+        def encode_images_batch(self, images):
+            return torch.ones((len(images), 8), dtype=torch.float32)
+
+    img = tmp_path / "00000.jpg"
+    Image.new("RGB", (8, 8), color=(10, 20, 30)).save(img)
+
+    phase2_pipeline._encode_images(
+        FakeCudaEmbedder(), [img], batch_size=4, workers=None, precision="fp32"
+    )
+    assert seen_num_workers == [0]

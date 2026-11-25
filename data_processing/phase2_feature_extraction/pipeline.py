@@ -7,7 +7,6 @@ import fcntl
 import hashlib
 import json
 import logging
-import os
 from pathlib import Path
 import shutil
 import time
@@ -29,6 +28,7 @@ DEFAULT_KEYFRAME_ROOT = PROJECT_ROOT / "data_processed" / "keyframes"
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "data_processed" / "features"
 DEFAULT_MODEL_KEY = "clip"
 DEFAULT_BATCH_SIZE = 512
+DEFAULT_WORKERS = 0
 DEFAULT_PRECISION = "fp32"
 PIPELINE_VERSION = "phase2-features-v3"
 REPRESENTATION_VERSION = "clip-l2-v1"
@@ -68,10 +68,6 @@ def _collate_decoded_images(batch: list[np.ndarray]) -> list[np.ndarray]:
     return list(batch)
 
 
-def _default_workers(device: torch.device) -> int:
-    return min(4, max(0, (os.cpu_count() or 1) - 1)) if device.type == "cuda" else 0
-
-
 def _encode_images(
     embedder,
     images: Sequence[Path],
@@ -80,7 +76,7 @@ def _encode_images(
     workers: int | None,
     precision: str,
 ) -> np.ndarray:
-    num_workers = _default_workers(embedder.device) if workers is None else workers
+    num_workers = DEFAULT_WORKERS if workers is None else workers
     chunks = []
     if hasattr(embedder, "encode_preprocessed_batch") and hasattr(embedder, "processor"):
         dataset = _PreprocessedImageDataset(images, embedder.processor.image_processor)

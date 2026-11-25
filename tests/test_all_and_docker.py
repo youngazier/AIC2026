@@ -1,6 +1,7 @@
 """Tests for Step 6 (Item 7): unified `all` CLI command and Docker configuration."""
 
 from pathlib import Path, PurePosixPath
+import re
 import shutil
 import subprocess
 
@@ -153,6 +154,53 @@ def test_all_stops_on_stage_level_error(data_tree: Path, stub_detector, stub_emb
     assert not (data_tree / "data_processed/database").exists()
 
 
+def test_all_continues_when_entire_batch_fails_phase1(
+    data_tree: Path, stub_detector, stub_embedder, monkeypatch
+):
+    _patch_clip_stub(monkeypatch, stub_embedder)
+    broken = data_tree / "data/videos/Videos_L22/L22_V001.mp4"
+    broken.write_bytes(b"corrupt-mp4-data")
+
+    exit_code = cli.main(["all", "--batch", "Videos_L21", "Videos_L22", "--model", "clip"])
+    assert exit_code != 0
+
+    assert (data_tree / "data_processed/features/clip/L21_V001.npy").is_file()
+    assert (data_tree / "data_processed/features/clip/L21_V002.npy").is_file()
+    assert not (data_tree / "data_processed/features/clip/L22_V001.npy").exists()
+    assert faiss.read_index(str(data_tree / "data_processed/indexes/clip/global.index")).ntotal == 6
+
+    engine = create_catalog_engine(data_tree / "data_processed/database/catalog.sqlite3")
+    try:
+        with engine.connect() as conn:
+            assert conn.scalar(select(func.count()).select_from(Video)) == 2
+    finally:
+        engine.dispose()
+
+    assert cli.main(["phase2", "--batch", "Videos_L99", "--model", "clip"]) != 0
+    assert cli.main(["phase2", "--batch", "Videos_L22", "--model", "clip"]) != 0
+
+
+def test_dockerfile_filter_excludes_nvidia_and_cuda_packages():
+    dockerfile = (REPO_ROOT / "data_processing/Dockerfile").read_text()
+    match = re.search(r"grep -vE '([^']+)' /tmp/requirements\.txt", dockerfile)
+    assert match is not None, "Expected grep -vE filter in data_processing/Dockerfile"
+    filter_re = re.compile(match.group(1))
+
+    exported = subprocess.run(
+        [
+            "uv", "export", "--frozen", "--no-dev", "--no-hashes",
+            "--no-emit-project", "--no-header", "--no-annotate",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    filtered = [line for line in exported.stdout.splitlines() if not filter_re.search(line)]
+    assert filtered
+    assert not any(line.startswith(("nvidia-", "cuda-", "torch==", "triton==")) for line in filtered)
+
+
 def test_compose_configs_are_valid():
     assert not (REPO_ROOT / "data_processing/phase1_keyframe_extraction/Dockerfile").exists()
     assert not (REPO_ROOT / "data_processing/phase1_keyframe_extraction/compose.yaml").exists()
@@ -163,17 +211,25 @@ def test_compose_configs_are_valid():
     assert gpu_override.is_file()
 
     cpu = subprocess.run(
-        ["docker", "compose", "-f", str(compose_file), "config", "--services"],
+        ["docker", "compose", "-f", str(compose_file), "config"],
         capture_output=True, text=True,
     )
     assert cpu.returncode == 0, cpu.stderr
-    assert set(cpu.stdout.splitlines()) == {"phase1", "phase2", "phase3", "all"}
+    assert 'shm_size: "4294967296"' in cpu.stdout
+
+    cpu_services = subprocess.run(
+        ["docker", "compose", "-f", str(compose_file), "config", "--services"],
+        capture_output=True, text=True,
+    )
+    assert cpu_services.returncode == 0, cpu_services.stderr
+    assert set(cpu_services.stdout.splitlines()) == {"phase1", "phase2", "phase3", "all"}
 
     gpu = subprocess.run(
         ["docker", "compose", "-f", str(compose_file), "-f", str(gpu_override), "config"],
         capture_output=True, text=True,
     )
     assert gpu.returncode == 0, gpu.stderr
+    assert 'shm_size: "4294967296"' in gpu.stdout
     assert "TORCH_INDEX_URL: https://download.pytorch.org/whl/cu130" in gpu.stdout
     assert "driver: nvidia" in gpu.stdout or "gpus:" in gpu.stdout or "NVIDIA" in gpu.stdout.upper() or "capabilities:" in gpu.stdout
 

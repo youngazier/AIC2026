@@ -17,8 +17,8 @@ def _add_phase2_options(parser, *, include_io_roots: bool = True) -> None:
     parser.add_argument(
         "--workers",
         type=int,
-        default=None,
-        help="DataLoader worker processes (default: min(4, cpu_count - 1) on GPU, 0 on CPU)",
+        default=0,
+        help="DataLoader worker processes (default: 0, load in main process)",
     )
     parser.add_argument(
         "--precision",
@@ -60,15 +60,8 @@ def _run_all(args) -> int:
     )
     print("Phase 1: processed {processed}, skipped {skipped}, failed {failed}".format(**summary1))
 
-    phase2_video = (
-        [phase1_pipeline.video_identity(path)[1] for path in videos]
-        if args.input is not None
-        else args.video
-    )
     selected, missing_videos = select_phase1_results(
-        video=phase2_video,
-        batch=None if args.input is not None else args.batch,
-        all_videos=False if args.input is not None else args.all_videos,
+        video=[phase1_pipeline.video_identity(path)[1] for path in videos],
         phase1_root=phase2_pipeline.DEFAULT_PHASE1_ROOT,
     )
     summary2 = phase2_pipeline.run_pipeline(

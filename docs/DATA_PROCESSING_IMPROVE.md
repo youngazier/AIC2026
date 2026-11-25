@@ -74,7 +74,7 @@ that doesn't have it.
 | `--verify` | 1, 2 | Deep skip check (decode every keyframe). Default is the quick check. |
 | `--model clip` | 2, 3 | Which embedding model. Features and indexes are kept per model. |
 | `--batch-size N` | 2 | Images per inference batch. Default is the measured best for the 4 GB GPU. |
-| `--workers N` | 2 | Processes that decode and resize JPEGs while the model encodes. Default `min(4, cpu_count - 1)` on GPU and `0` on CPU. `0` loads in the main process. |
+| `--workers N` | 2 | Processes that decode and resize JPEGs while the model encodes. Default `0` (loads in the main process) on both CPU and GPU. |
 | `--no-phase3` | all | Skip the index and catalog (for members who process only their own batches). |
 | `--no-index`, `--no-catalog` | 3 | Run only one part of Phase 3. |
 

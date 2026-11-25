@@ -22,6 +22,7 @@ x-common: &common
       TORCH_INDEX_URL: https://download.pytorch.org/whl/cpu
   # Write output files as your host user instead of root.
   user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+  shm_size: "4gb"
   volumes:
     - ../data:/app/data:ro                        # competition inputs, read-only
     - ../data_processed:/app/data_processed       # all generated artifacts (including catalog SQLite DB)
