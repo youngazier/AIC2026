@@ -56,7 +56,7 @@ class CLIPEmbedding(BaseEmbedding):
             features = getattr(features, "pooler_output", None)
         if not isinstance(features, torch.Tensor) or features.ndim != 2:
             raise TypeError("CLIP did not return a two-dimensional feature tensor")
-        return F.normalize(features, p=2, dim=-1).detach().cpu()
+        return F.normalize(features.to(dtype=torch.float32), p=2, dim=-1).detach().cpu()
 
     @torch.inference_mode()
     def encode_text(self, text: str | list[str]) -> torch.Tensor:
@@ -80,3 +80,19 @@ class CLIPEmbedding(BaseEmbedding):
         inputs = self.processor(images=loaded, return_tensors="pt")
         inputs = {name: value.to(self.device) for name, value in inputs.items()}
         return self._normalize(self.model.get_image_features(**inputs))
+
+    @torch.inference_mode()
+    def encode_preprocessed_batch(
+        self, pixel_values: torch.Tensor, *, precision: str = "fp32"
+    ) -> torch.Tensor:
+        if pixel_values.ndim != 4 or pixel_values.shape[0] < 1:
+            raise ValueError("Preprocessed batch must be a non-empty 4D tensor")
+        if precision not in {"fp32", "fp16"}:
+            raise ValueError(f"Unsupported precision: {precision!r}")
+        device_inputs = pixel_values.to(self.device, non_blocking=pixel_values.is_pinned())
+        if precision == "fp16":
+            with torch.autocast(device_type=self.device.type, dtype=torch.float16):
+                features = self.model.get_image_features(pixel_values=device_inputs)
+        else:
+            features = self.model.get_image_features(pixel_values=device_inputs)
+        return self._normalize(features)

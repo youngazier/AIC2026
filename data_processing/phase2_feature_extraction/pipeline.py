@@ -7,13 +7,16 @@ import fcntl
 import hashlib
 import json
 import logging
+import os
 from pathlib import Path
 import shutil
+import time
 from uuid import uuid4
 
 import numpy as np
 from PIL import Image
 import torch
+from torch.utils.data import DataLoader, Dataset
 
 from .clip_embedding import CLIPEmbedding
 from .models import MODELS, resolve_model
@@ -25,8 +28,85 @@ DEFAULT_PHASE1_ROOT = PROJECT_ROOT / "data_processed" / "transnetv2"
 DEFAULT_KEYFRAME_ROOT = PROJECT_ROOT / "data_processed" / "keyframes"
 DEFAULT_OUTPUT_ROOT = PROJECT_ROOT / "data_processed" / "features"
 DEFAULT_MODEL_KEY = "clip"
+DEFAULT_BATCH_SIZE = 512
+DEFAULT_PRECISION = "fp32"
 PIPELINE_VERSION = "phase2-features-v3"
 REPRESENTATION_VERSION = "clip-l2-v1"
+
+
+class _PreprocessedImageDataset(Dataset):
+    """Decode and preprocess keyframes in DataLoader workers using the model's processor."""
+
+    def __init__(self, paths: Sequence[Path], image_processor) -> None:
+        self.paths = list(paths)
+        self.image_processor = image_processor
+
+    def __len__(self) -> int:
+        return len(self.paths)
+
+    def __getitem__(self, index: int) -> torch.Tensor:
+        with Image.open(self.paths[index]) as image:
+            rgb = image.convert("RGB")
+        return self.image_processor(images=rgb, return_tensors="pt")["pixel_values"].squeeze(0)
+
+
+class _DecodedImageDataset(Dataset):
+    """Decode keyframes to RGB arrays in DataLoader workers for generic embedders."""
+
+    def __init__(self, paths: Sequence[Path]) -> None:
+        self.paths = list(paths)
+
+    def __len__(self) -> int:
+        return len(self.paths)
+
+    def __getitem__(self, index: int) -> np.ndarray:
+        with Image.open(self.paths[index]) as image:
+            return np.asarray(image.convert("RGB"), dtype=np.uint8)
+
+
+def _collate_decoded_images(batch: list[np.ndarray]) -> list[np.ndarray]:
+    return list(batch)
+
+
+def _default_workers(device: torch.device) -> int:
+    return min(4, max(0, (os.cpu_count() or 1) - 1)) if device.type == "cuda" else 0
+
+
+def _encode_images(
+    embedder,
+    images: Sequence[Path],
+    *,
+    batch_size: int,
+    workers: int | None,
+    precision: str,
+) -> np.ndarray:
+    num_workers = _default_workers(embedder.device) if workers is None else workers
+    chunks = []
+    if hasattr(embedder, "encode_preprocessed_batch") and hasattr(embedder, "processor"):
+        dataset = _PreprocessedImageDataset(images, embedder.processor.image_processor)
+        loader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            shuffle=False,
+            pin_memory=embedder.device.type == "cuda",
+        )
+        for batch in loader:
+            tensor = embedder.encode_preprocessed_batch(batch, precision=precision)
+            chunks.append(tensor.detach().to(device="cpu", dtype=torch.float32).numpy())
+    else:
+        dataset = _DecodedImageDataset(images)
+        loader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            shuffle=False,
+            collate_fn=_collate_decoded_images,
+        )
+        for batch in loader:
+            tensor = embedder.encode_images_batch(batch)
+            chunks.append(tensor.detach().to(device="cpu", dtype=torch.float32).numpy())
+    return np.concatenate(chunks, axis=0).astype(np.float32, copy=False)
 
 
 def _sha256(path: Path) -> str:
@@ -214,7 +294,9 @@ def _cleanup_leftovers(model_dir: Path) -> None:
 
 def process_result(result_dir: Path, *, keyframe_root: Path, model_dir: Path,
                    get_embedder, model_name: str, batch_size: int,
-                   force: bool = False, verify: bool = False) -> tuple[str, Path]:
+                   workers: int | None = None, precision: str = DEFAULT_PRECISION,
+                   force: bool = False, verify: bool = False,
+                   metrics: dict[str, float | int] | None = None) -> tuple[str, Path]:
     """Encode one video and atomically publish its feature/metadata pair."""
     try:
         phase1, _ = read_phase1_result(result_dir)
@@ -230,6 +312,7 @@ def process_result(result_dir: Path, *, keyframe_root: Path, model_dir: Path,
         "pipeline_version": PIPELINE_VERSION,
         "representation_version": REPRESENTATION_VERSION,
         "model_name": model_name,
+        "precision": precision,
         "input_shots_sha256": _sha256(result_dir / "shots.json"),
         "batch": phase1["batch"],
         "video_name": video_name,
@@ -254,12 +337,15 @@ def process_result(result_dir: Path, *, keyframe_root: Path, model_dir: Path,
     staged_feature, staged_metadata = work_dir / feature_path.name, work_dir / sidecar.name
     LOGGER.info("PROCESSING %s: %d keyframes", video_name, len(images))
     started_at = _now()
+    started_perf = time.perf_counter()
     try:
-        chunks = []
-        for start in range(0, len(images), batch_size):
-            tensor = embedder.encode_images_batch(images[start:start + batch_size])
-            chunks.append(tensor.detach().to(device="cpu", dtype=torch.float32).numpy())
-        vectors = np.concatenate(chunks, axis=0).astype(np.float32, copy=False)
+        vectors = _encode_images(
+            embedder,
+            images,
+            batch_size=batch_size,
+            workers=workers,
+            precision=precision,
+        )
         validate_vectors(vectors, len(images))
         np.save(staged_feature, vectors, allow_pickle=False)
         records = [{
@@ -278,7 +364,11 @@ def process_result(result_dir: Path, *, keyframe_root: Path, model_dir: Path,
         _write_json(staged_metadata, metadata)
         validate_result(staged_feature, expected)
         _publish_pair(staged_feature, staged_metadata, feature_path, sidecar)
-        LOGGER.info("COMPLETED %s: %s", video_name, feature_path)
+        elapsed = time.perf_counter() - started_perf
+        if metrics is not None:
+            metrics["images"] = len(images)
+            metrics["seconds"] = elapsed
+        LOGGER.info("COMPLETED %s: %d images in %.2fs -> %s", video_name, len(images), elapsed, feature_path)
         return "processed", feature_path
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
@@ -306,12 +396,19 @@ def run_pipeline(input_path: Path | Sequence[Path] = DEFAULT_PHASE1_ROOT, *,
                  output_root: Path = DEFAULT_OUTPUT_ROOT,
                  model_name: str | None = None,
                  model_key: str = DEFAULT_MODEL_KEY, device: str = "auto",
-                 batch_size: int = 64, force: bool = False,
+                 batch_size: int = DEFAULT_BATCH_SIZE,
+                 workers: int | None = None,
+                 precision: str = DEFAULT_PRECISION,
+                 force: bool = False,
                  verify: bool = False,
                  embedder_factory=None) -> dict[str, int]:
     """Encode every selected Phase 1 result into model-scoped `.npy` files."""
     if batch_size < 1:
         raise ValueError("Batch size must be at least 1")
+    if workers is not None and workers < 0:
+        raise ValueError("Workers must be at least 0")
+    if precision not in {"fp32", "fp16"}:
+        raise ValueError(f"Precision must be fp32 or fp16, got {precision!r}")
     allowed = "abcdefghijklmnopqrstuvwxyz0123456789-_"
     if not model_key or any(character not in allowed for character in model_key):
         raise ValueError("Model key may contain only lowercase letters, digits, '-' and '_'")
@@ -340,21 +437,31 @@ def run_pipeline(input_path: Path | Sequence[Path] = DEFAULT_PHASE1_ROOT, *,
         nonlocal embedder
         if embedder is None:
             embedder = embedder_factory(model_name=model_name, device=device)
+            if embedder.device.type == "cuda":
+                LOGGER.info("Using CUDA device: %s", torch.cuda.get_device_name(embedder.device))
         return embedder
 
     summary = {"processed": 0, "skipped": 0, "failed": len(missing_videos)}
+    total_images = 0
+    total_seconds = 0.0
     with _processing_lock(model_dir):
         _cleanup_leftovers(model_dir)
         for index, result in enumerate(results, 1):
             LOGGER.info("Phase 1 result %d/%d: %s", index, len(results), result)
+            metrics: dict[str, float | int] = {}
             try:
                 status, _ = process_result(
                     result, keyframe_root=keyframe_root, model_dir=model_dir,
                     get_embedder=get_embedder, model_name=model_name,
-                    batch_size=batch_size, force=force, verify=verify,
+                    batch_size=batch_size, workers=workers, precision=precision,
+                    force=force, verify=verify, metrics=metrics,
                 )
                 summary[status] += 1
+                total_images += int(metrics.get("images", 0))
+                total_seconds += float(metrics.get("seconds", 0.0))
             except Exception:
                 summary["failed"] += 1
                 LOGGER.exception("FAILED %s", result)
+    rate = (total_images / total_seconds) if total_seconds > 0 else 0.0
+    LOGGER.info("Total: %d images in %.2fs (%.1f images/s)", total_images, total_seconds, rate)
     return summary

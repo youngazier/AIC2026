@@ -38,22 +38,48 @@ uv run python -m data_processing.cli phase2 \
   data_processed/transnetv2/Videos_L21/L21_V001
 ```
 
-The default inference device is `auto`, which selects CUDA when available. Set
-the device and inference batch size explicitly when needed:
+The default inference device is `auto`, which selects CUDA when available.
+DataLoader workers (`--workers`), batch size (`--batch-size`), and precision
+(`--precision`) can be tuned as needed:
 
 ```bash
 uv run python -m data_processing.cli phase2 \
   --batch Videos_L21 \
   --device gpu \
-  --batch-size 128
+  --batch-size 512 \
+  --workers 4 \
+  --precision fp32
 ```
 
-Reduce `--batch-size` if GPU memory is insufficient. `gpu` is an alias for
-`cuda`; `cpu` forces CPU inference.
+- `--batch-size`: defaults to `512` (largest of 64/128/256/512 staying under 75% VRAM on the GTX 1650 Ti). Reduce `--batch-size` if GPU memory is tighter.
+- `--workers`: defaults to `min(4, cpu_count - 1)` on GPU and `0` (main process) on CPU.
+- `--precision`: `fp32` (default) or `fp16` (`torch.autocast` compute). Embeddings are always normalized in `fp32` and saved as `float32`, with `precision` recorded in each JSON sidecar.
+
+On CUDA runs, Phase 2 logs the GPU device name once, one timing line per processed video, and a total `images/s` summary at the end.
+
+`gpu` is an alias for `cuda`; `cpu` forces CPU inference.
 
 The command prints a summary (`processed N, skipped N, failed N`) and exits
 nonzero if any video fails. One bad video does not stop the remaining videos
 in the selected input.
+
+### Measured throughput (`Videos_L21`, 617 keyframes)
+
+Measured on NVIDIA GeForce GTX 1650 Ti (3729.4 MiB VRAM; 75% ceiling = 2797.0 MiB) with `openai/clip-vit-base-patch32` (`4` DataLoader workers, `pin_memory=True` for DataLoader runs):
+
+| Path | Precision | Batch size | Workers | Time | Throughput | Peak VRAM |
+|---|---|---:|---:|---:|---:|---|
+| Legacy (`encode_images_batch`) | `fp32` | 64 | 0 | 57.67s | 10.7 img/s | 773.5 MiB (20.7%) |
+| DataLoader | `fp32` | 64 | 4 | 25.05s | 24.6 img/s | 773.6 MiB (20.7%) |
+| DataLoader | `fp32` | 128 | 4 | 13.37s | 46.2 img/s | 963.0 MiB (25.8%) |
+| DataLoader | `fp32` | 256 | 4 | 16.46s | 37.5 img/s | 1335.7 MiB (35.8%) |
+| DataLoader | `fp32` | 512 | 4 | 14.35s | 43.0 img/s | 2083.4 MiB (55.9%) |
+| DataLoader | `fp16` | 64 | 4 | 22.00s | 28.0 img/s | 716.0 MiB (19.2%) |
+| DataLoader | `fp16` | 128 | 4 | 17.79s | 34.7 img/s | 848.8 MiB (22.8%) |
+| DataLoader | `fp16` | 256 | 4 | 19.44s | 31.7 img/s | 1112.5 MiB (29.8%) |
+| DataLoader | `fp16` | 512 | 4 | 23.66s | 26.1 img/s | 1629.3 MiB (43.7%) |
+
+On 200 sample keyframes from `Videos_L21`, DataLoader `fp32` matched the legacy path within `9.65e-07` max absolute difference, and `fp16` vs `fp32` kept cosine similarity `min=0.999972` (`mean=0.999998`, threshold `>= 0.999`). Default remains `fp32` because it was faster than `fp16` on the GTX 1650 Ti and avoids precision mismatches with CPU runs.
 
 ## Output layout
 

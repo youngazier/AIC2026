@@ -13,7 +13,19 @@ def _add_phase2_options(parser, *, include_io_roots: bool = True) -> None:
         parser.add_argument("--output-root", type=Path, help="Embedding output root")
     parser.add_argument("--model", default="clip", help="Registered model key, for example clip")
     parser.add_argument("--checkpoint", help="Hugging Face model name or local checkpoint path")
-    parser.add_argument("--batch-size", type=int, default=64, help="Images per inference batch")
+    parser.add_argument("--batch-size", type=int, default=512, help="Images per inference batch")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="DataLoader worker processes (default: min(4, cpu_count - 1) on GPU, 0 on CPU)",
+    )
+    parser.add_argument(
+        "--precision",
+        choices=("fp32", "fp16"),
+        default="fp32",
+        help="Inference precision (always normalized and stored as float32)",
+    )
     parser.add_argument(
         "--device",
         choices=("auto", "cpu", "gpu", "cuda"),
@@ -68,6 +80,8 @@ def _run_all(args) -> int:
         model_key=args.model,
         device="cuda" if args.device == "gpu" else args.device,
         batch_size=args.batch_size,
+        workers=args.workers,
+        precision=args.precision,
         force=args.force,
         verify=args.verify,
         embedder_factory=embedder_cls,
@@ -163,6 +177,8 @@ def main(argv=None) -> int:
                 model_key=args.model,
                 device="cuda" if args.device == "gpu" else args.device,
                 batch_size=args.batch_size,
+                workers=args.workers,
+                precision=args.precision,
                 force=args.force,
                 verify=args.verify,
                 embedder_factory=embedder_cls,

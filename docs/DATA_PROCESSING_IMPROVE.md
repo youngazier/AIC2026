@@ -334,7 +334,7 @@ apply to everyone.
   - [x] Skip checks without mtimes (Phase 1, Phase 2, and index sources)
   - [ ] `Videos_L21` reprocessed
 - [x] 5. Quick skip check with `--verify`, Phase 2 skip before image checks
-- [ ] 6. Phase 2 DataLoader, batch size, fp16 option, timing line
+- [x] 6. Phase 2 DataLoader, batch size, fp16 option, timing line
 - [x] 7. One compose file, GPU override, `all` command, old Docker files removed
 - [ ] 8. Merge instructions in `docs/03`
 - [ ] 9. Housekeeping
