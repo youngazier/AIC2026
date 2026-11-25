@@ -132,7 +132,14 @@ docker compose run --rm phase1 /app/data/videos/Videos_L21/L21_V001.mp4 --force
 When members process disjoint `Videos_L*` batches in parallel (using
 `all --no-phase3` or `phase1` + `phase2`), archive each member's batches and
 features and unpack them into a single `data_processed/` directory before
-running Phase 3:
+running Phase 3.
+
+**Source videos are also required on the merging machine:** `phase3`'s catalog
+import validates each video against its source `.mp4` under
+`data/videos/Videos_L*/` (`source_size` and relative path), and fails any video
+whose source `.mp4` is missing or changed. Make sure the merging machine
+already has all source batches under `data/videos/Videos_L*/` (same filenames
+and byte sizes as on the processing machines) before running `phase3`.
 
 ```bash
 # On each member's machine, after their assigned batches finish
@@ -140,7 +147,7 @@ running Phase 3:
 tar -C data_processed -czf Videos_L22.tgz \
   transnetv2/Videos_L22 keyframes/Videos_L22 features/clip
 
-# On the merging machine:
+# On the merging machine (with all source .mp4 batches under data/videos/Videos_L*/):
 tar -C data_processed -xzf Videos_L22.tgz
 
 # Once all members' outputs are unpacked, build indexes and populate the SQLite catalog:

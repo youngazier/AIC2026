@@ -192,7 +192,7 @@ def select_phase1_results(
     by_name: dict[str, Path] = {}
     if root.is_dir():
         for entry in sorted(root.iterdir()):
-            if entry.is_dir() and BATCH_PATTERN.fullmatch(entry.name):
+            if entry.is_dir() and (BATCH_PATTERN.fullmatch(entry.name) or entry.name == "unbatched"):
                 for result_dir in _completed_in_batch(entry, read_phase1):
                     header, _ = read_phase1(result_dir)
                     name = header.get("video_name")

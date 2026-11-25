@@ -6,6 +6,7 @@ import shutil
 import subprocess
 
 import faiss
+import pytest
 from sqlalchemy import func, select
 
 from backend.app.database import create_catalog_engine
@@ -201,6 +202,28 @@ def test_dockerfile_filter_excludes_nvidia_and_cuda_packages():
     assert not any(line.startswith(("nvidia-", "cuda-", "torch==", "triton==")) for line in filtered)
 
 
+def test_all_unbatched_path_completes_all_phases(
+    data_tree: Path, tiny_video: Path, stub_detector, stub_embedder, monkeypatch
+):
+    _patch_clip_stub(monkeypatch, stub_embedder)
+    outside = data_tree / "data/videos/custom_clip.mp4"
+    shutil.copy2(tiny_video, outside)
+
+    exit_code = cli.main(["all", str(outside), "--model", "clip"])
+    assert exit_code == 0
+    assert (data_tree / "data_processed/transnetv2/unbatched/custom_clip/shots.json").is_file()
+    assert (data_tree / "data_processed/keyframes/unbatched/custom_clip/00000.jpg").is_file()
+    assert (data_tree / "data_processed/features/clip/custom_clip.npy").is_file()
+    assert faiss.read_index(str(data_tree / "data_processed/indexes/clip/global.index")).ntotal == 3
+
+    engine = create_catalog_engine(data_tree / "data_processed/database/catalog.sqlite3")
+    try:
+        with engine.connect() as conn:
+            assert conn.scalar(select(func.count()).select_from(Video)) == 1
+    finally:
+        engine.dispose()
+
+
 def test_compose_configs_are_valid():
     assert not (REPO_ROOT / "data_processing/phase1_keyframe_extraction/Dockerfile").exists()
     assert not (REPO_ROOT / "data_processing/phase1_keyframe_extraction/compose.yaml").exists()
@@ -209,6 +232,12 @@ def test_compose_configs_are_valid():
     gpu_override = REPO_ROOT / "data_processing/compose.gpu.yaml"
     assert compose_file.is_file()
     assert gpu_override.is_file()
+
+    if shutil.which("docker") is None:
+        pytest.skip("docker CLI is not installed")
+    compose_check = subprocess.run(["docker", "compose", "version"], capture_output=True, text=True)
+    if compose_check.returncode != 0:
+        pytest.skip("docker compose is not available")
 
     cpu = subprocess.run(
         ["docker", "compose", "-f", str(compose_file), "config"],

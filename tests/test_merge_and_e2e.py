@@ -173,6 +173,32 @@ def test_cp_merge_workflow_skips_and_warns_on_missing_features(
     assert faiss.read_index(str(merged / "data_processed/indexes/clip/global.index")).ntotal == 6
 
 
+def test_merge_without_source_videos_fails_catalog_import_but_builds_index(
+    tmp_path: Path, tiny_video: Path, stub_detector, stub_embedder, monkeypatch
+):
+    member_a, member_b = _build_two_member_trees(tmp_path, tiny_video, monkeypatch, stub_embedder)
+    merged = tmp_path / "merged_no_sources"
+    (merged / "data/videos").mkdir(parents=True)
+    (merged / "data_processed").mkdir(parents=True)
+    for src_root in (member_a / "data_processed", member_b / "data_processed"):
+        for sub in ("transnetv2", "keyframes", "features"):
+            subprocess.run(
+                ["cp", "-r", str(src_root / sub), str(merged / "data_processed") + "/"],
+                check=True,
+            )
+
+    with _use_tree(monkeypatch, merged):
+        assert cli.main(["phase3", "--model", "clip"]) == 1
+
+    assert faiss.read_index(str(merged / "data_processed/indexes/clip/global.index")).ntotal == 9
+    engine = create_catalog_engine(merged / "data_processed/database/catalog.sqlite3")
+    try:
+        with engine.connect() as conn:
+            assert conn.scalar(select(func.count()).select_from(Video)) == 0
+    finally:
+        engine.dispose()
+
+
 def test_fast_tiny_video_end_to_end_with_stubs(
     tmp_path: Path, tiny_video: Path, stub_detector, stub_embedder, monkeypatch
 ):

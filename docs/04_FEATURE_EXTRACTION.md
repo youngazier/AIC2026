@@ -79,7 +79,13 @@ Measured on NVIDIA GeForce GTX 1650 Ti (3729.4 MiB VRAM; 75% ceiling = 2797.0 Mi
 | DataLoader | `fp16` | 256 | 4 | 19.44s | 31.7 img/s | 1112.5 MiB (29.8%) |
 | DataLoader | `fp16` | 512 | 4 | 23.66s | 26.1 img/s | 1629.3 MiB (43.7%) |
 
-Note: the DataLoader rows in this table all used `4` workers and have no `0`-worker DataLoader baseline, so the table does not show the effect of `--workers` on throughput (`--workers` defaults to `0`).
+Note: the DataLoader rows in this table used a single combined `DataLoader` over
+all 617 keyframes and `4` workers. In end-to-end `phase2 --batch Videos_L21` runs
+at `--batch-size 512` and `fp32` on the same GPU, `--workers 0` measured
+**`39.1 img/s`**, whereas `--workers 4` dropped to **`~13 img/s`** because
+creating worker processes per video adds startup overhead across 19 short
+videos. The `43.0 img/s` 4-worker `512`-batch figure above could not be
+reproduced in end-to-end CLI runs, so `--workers` defaults to `0`.
 
 On 200 sample keyframes from `Videos_L21`, DataLoader `fp32` matched the legacy path within `9.65e-07` max absolute difference, and `fp16` vs `fp32` kept cosine similarity `min=0.999972` (`mean=0.999998`, threshold `>= 0.999`). Default remains `fp32` because it was faster than `fp16` on the GTX 1650 Ti and avoids precision mismatches with CPU runs.
 
@@ -201,7 +207,7 @@ Use `--force` to rebuild an unchanged index. Custom locations are supported with
 ### Optional playlist indexes
 
 If `data/video_to_playlist.json` exists, the builder also creates one index per
-playlist under `data_processed/indexes/playlist/`. The mapping must be a JSON
+playlist under `data_processed/indexes/<model>/playlist/`. The mapping must be a JSON
 object from video name to playlist name:
 
 ```json
