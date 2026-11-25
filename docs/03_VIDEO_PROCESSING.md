@@ -126,3 +126,28 @@ Container Toolkit. The CPU compose file requires none of these.
 docker compose run --rm phase1 --video L21_V001
 docker compose run --rm phase1 /app/data/videos/Videos_L21/L21_V001.mp4 --force
 ```
+
+## Merging outputs across team members
+
+When members process disjoint `Videos_L*` batches in parallel (using
+`all --no-phase3` or `phase1` + `phase2`), archive each member's batches and
+features and unpack them into a single `data_processed/` directory before
+running Phase 3:
+
+```bash
+# On each member's machine, after their assigned batches finish
+# (features/clip should contain only that member's feature files):
+tar -C data_processed -czf Videos_L22.tgz \
+  transnetv2/Videos_L22 keyframes/Videos_L22 features/clip
+
+# On the merging machine:
+tar -C data_processed -xzf Videos_L22.tgz
+
+# Once all members' outputs are unpacked, build indexes and populate the SQLite catalog:
+uv run python -m data_processing.cli phase3 --model clip
+```
+
+Because each member processes distinct batches and Phase 2 writes one `.npy`/`.json`
+pair per video without relying on file modification times, plain `tar` or `cp -r`
+merges cleanly without causing reruns to reprocess completed videos. `phase3` warns
+about any video with Phase 1 output that is missing feature files.
