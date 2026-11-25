@@ -23,16 +23,18 @@ uv run pytest -k catalog
 uv run python -m data_processing.cli transnetv2 data/videos/Videos_L21/L21_V001.mp4   # shots only
 uv run python -m data_processing.cli phase1 --batch Videos_L21 [--device auto|cpu|gpu|cuda] [--force]
 
-# Phase 2: CLIP ViT-B/32 image embeddings, then FAISS index
+# Phase 2: CLIP ViT-B/32 image embeddings, then Phase 3 (index + catalog) or everything with `all`
 uv run python -m data_processing.cli phase2 --batch Videos_L21 --device gpu
-uv run python -m data_processing.phase2_feature_extraction.build_index --model clip
+uv run python -m data_processing.cli phase3 --model clip
+uv run python -m data_processing.cli all --batch Videos_L21 --model clip --device gpu
 
-# Catalog (SQLite via Alembic)
+# Standalone index build & catalog import (also invoked by phase3)
+uv run python -m data_processing.phase2_feature_extraction.build_index --model clip
 uv run alembic upgrade head
 uv run python -m backend.app.catalog.cli import --input data_processed/transnetv2
 ```
 
-Phase 1 Docker images live in `data_processing/phase1_keyframe_extraction/compose.yaml`; run `docker compose` from that directory (`phase1` service, `phase1-gpu` under the `gpu` profile).
+Offline processing Docker services (`phase1`, `phase2`, `phase3`, `all`) live in `data_processing/compose.yaml`; run `docker compose` from `data_processing/` and add `-f compose.yaml -f compose.gpu.yaml` for GPU execution.
 
 ## Architecture
 

@@ -1,0 +1,19 @@
+# GPU override for data_processing/compose.yaml:
+#   docker compose -f compose.yaml -f compose.gpu.yaml run --rm phase2 --batch Videos_L21 --device gpu
+
+x-gpu: &gpu
+  image: aic2026-processing:gpu
+  build:
+    args:
+      TORCH_INDEX_URL: https://download.pytorch.org/whl/cu130
+  gpus: all
+
+services:
+  phase1:
+    <<: *gpu
+  phase2:
+    <<: *gpu
+  phase3:
+    <<: *gpu
+  all:
+    <<: *gpu

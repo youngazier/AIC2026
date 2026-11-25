@@ -66,71 +66,63 @@ and legacy formats.
 
 ## Docker
 
-Run Docker commands from the Phase 1 directory. The Compose configuration
-mounts `data/` read-only at `/app/data` and writes results to
-`data_processed/` through `/app/data_processed`.
+Run Docker commands from `data_processing/`. The Compose configuration
+mounts `data/` read-only at `/app/data`, writes all generated outputs (including
+the SQLite catalog) to `data_processed/` through `/app/data_processed`, and
+reuses the host Hugging Face cache directory.
 
 Create the output directory before the first run:
 
 ```bash
-cd data_processing/phase1_keyframe_extraction
-mkdir -p ../../data_processed
+cd data_processing
+mkdir -p ../data_processed
 ```
 
 ### Build the image
 
 ```bash
-docker compose build phase1
+docker compose build
 ```
 
-This builds the smaller CPU image and does not download CUDA libraries. Build
-the GPU image only when CUDA processing is needed:
+This builds the smaller CPU image from `uv.lock` without downloading CUDA
+libraries. Build the GPU image only when CUDA processing is needed:
 
 ```bash
-docker compose --profile gpu build phase1-gpu
+docker compose -f compose.yaml -f compose.gpu.yaml build
 ```
 
-### Run on a directory of videos
+### Run services
 
-The input path is the path inside the container. For example, this processes
-every supported video under the host directory `data/videos/Videos_L21`:
+Arguments after the service name (`phase1`, `phase2`, `phase3`, `all`) match
+`data_processing.cli`:
 
 ```bash
-docker compose run --rm phase1 \
-  phase1 /app/data/videos/Videos_L21
+# Phase 1: specific batches or all downloaded Videos_L* batches
+docker compose run --rm phase1 --batch Videos_L21 Videos_L22
+docker compose run --rm phase1 --all
+
+# Phase 2 and Phase 3
+docker compose run --rm phase2 --batch Videos_L21 --model clip
+docker compose run --rm phase3 --model clip
+
+# Everything in one go (Phase 1 -> Phase 2 -> Phase 3)
+docker compose run --rm all --batch Videos_L21 --model clip
 ```
 
-To process all downloaded videos, omit the input path:
+To use an NVIDIA GPU, pass the GPU override file and `--device gpu`:
 
 ```bash
-docker compose run --rm phase1 phase1
+docker compose -f compose.yaml -f compose.gpu.yaml run --rm phase1 --batch Videos_L21 --device gpu
+docker compose -f compose.yaml -f compose.gpu.yaml run --rm phase2 --batch Videos_L21 --device gpu
+docker compose -f compose.yaml -f compose.gpu.yaml run --rm all --batch Videos_L21 --model clip --device gpu
 ```
 
-To use an NVIDIA GPU, run the GPU service instead:
-
-```bash
-docker compose --profile gpu run --rm phase1-gpu \
-  phase1 /app/data/videos/Videos_L21 --device gpu
-```
-
-The GPU command requires an NVIDIA GPU, compatible host drivers, and the
-NVIDIA Container Toolkit. The CPU service requires none of these.
+The GPU override requires an NVIDIA GPU, compatible host drivers, and the NVIDIA
+Container Toolkit. The CPU compose file requires none of these.
 
 ### Run on a single video
 
 ```bash
-docker compose run --rm phase1 \
-  phase1 /app/data/videos/Videos_L21/L21_V001.mp4
+docker compose run --rm phase1 --video L21_V001
+docker compose run --rm phase1 /app/data/videos/Videos_L21/L21_V001.mp4 --force
 ```
-
-For GPU processing, replace `phase1` after `--rm` with `phase1-gpu`, enable
-the `gpu` profile, and add `--device gpu`:
-
-```bash
-docker compose --profile gpu run --rm phase1-gpu \
-  phase1 /app/data/videos/Videos_L21/L21_V001.mp4 --device gpu
-```
-
-Pass other CLI options after the input path, for example `--visualize` or
-`--force`. Replace the first `phase1` after the service name with `transnetv2`
-to run shot detection without keyframe extraction.

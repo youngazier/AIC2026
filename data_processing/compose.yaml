@@ -1,18 +1,18 @@
 # Offline processing services. Run from this directory:
 #
 #   docker compose build                          # CPU image
-#   docker compose run --rm phase1 --batch Videos_L21
-#   docker compose run --rm phase2 --batch Videos_L21
-#   docker compose run --rm index
+#   docker compose run --rm phase1 --batch Videos_L21 Videos_L22
+#   docker compose run --rm phase2 --batch Videos_L21 --model clip
+#   docker compose run --rm phase3 --model clip
+#   docker compose run --rm all --batch Videos_L21 --model clip
 #
-#   docker compose --profile gpu build            # CUDA image
-#   docker compose --profile gpu run --rm phase1-gpu --batch Videos_L21
-#   docker compose --profile gpu run --rm phase2-gpu --batch Videos_L21
+#   # GPU: add compose.gpu.yaml
+#   docker compose -f compose.yaml -f compose.gpu.yaml build
+#   docker compose -f compose.yaml -f compose.gpu.yaml run --rm phase2 --batch Videos_L21 --device gpu
 #
 # Arguments after the service name are passed to the CLI, exactly like
-# `uv run python -m data_processing.cli phase1 ...`.
+# `uv run python -m data_processing.cli <command> ...`.
 
-# Settings shared by every service (a YAML anchor, reused with <<: *common).
 x-common: &common
   image: aic2026-processing:cpu
   build:
@@ -24,18 +24,8 @@ x-common: &common
   user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
   volumes:
     - ../data:/app/data:ro                        # competition inputs, read-only
-    - ../data_processed:/app/data_processed       # all generated artifacts
+    - ../data_processed:/app/data_processed       # all generated artifacts (including catalog SQLite DB)
     - ${HF_CACHE_DIR:-~/.cache/huggingface}:/hf-cache  # reuse downloaded CLIP weights
-
-x-gpu: &gpu
-  image: aic2026-processing:gpu
-  build:
-    context: ..
-    dockerfile: data_processing/Dockerfile
-    args:
-      TORCH_INDEX_URL: https://download.pytorch.org/whl/cu130
-  profiles: ["gpu"]
-  gpus: all
 
 services:
   phase1:
@@ -46,15 +36,10 @@ services:
     <<: *common
     entrypoint: ["python", "-m", "data_processing.cli", "phase2"]
 
-  index:
+  phase3:
     <<: *common
-    entrypoint: ["python", "-m", "data_processing.phase2_feature_extraction.build_index"]
-    command: ["--model", "clip"]
+    entrypoint: ["python", "-m", "data_processing.cli", "phase3"]
 
-  phase1-gpu:
-    <<: [*gpu, *common]
-    entrypoint: ["python", "-m", "data_processing.cli", "phase1", "--device", "gpu"]
-
-  phase2-gpu:
-    <<: [*gpu, *common]
-    entrypoint: ["python", "-m", "data_processing.cli", "phase2", "--device", "gpu"]
+  all:
+    <<: *common
+    entrypoint: ["python", "-m", "data_processing.cli", "all"]

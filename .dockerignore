@@ -1,5 +1,11 @@
 *
+!pyproject.toml
+!uv.lock
+!alembic.ini
 !data_processing/
 !data_processing/**
+!backend/
+!backend/**
 **/__pycache__/
 **/*.pyc
+**/.pytest_cache/
